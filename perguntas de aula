@@ -1,0 +1,164 @@
+## Dos modelos estudados, algum se encaixa?
+
+Três modelos se encaixam simultaneamente e se complementam:
+
+**Arquitetura Baseada em Eventos (Pub/Sub)** é o modelo central. Cada avião publica eventos de telemetria sem saber quem vai consumir. O mapa, o banco de dados e futuros consumidores assinam os tópicos de interesse de forma completamente independente. Isso garante desacoplamento referencial (ninguém precisa saber o endereço de ninguém) e temporal (produtor e consumidor não precisam estar ativos ao mesmo tempo se houver persistência).
+
+**Cliente-Servidor Multicamadas** estrutura o sistema verticalmente: a camada de apresentação é o Leaflet no browser, a camada de processamento é o broker + servidor de aplicação que agrega e filtra os dados, e a camada de dados é o banco que persiste o histórico de voos. Cada camada evolui independentemente.
+
+**Redes de Sensores** é a analogia mais precisa para os contêineres de aviões: nós autônomos com estado local, que coletam dados periodicamente e os transmitem para um ponto de agregação sem coordenação entre si.
+
+---
+
+## Arquitetura de software interna?
+
+O núcleo deve ser um **Event Bus real com broker dedicado** — o Mosquitto (MQTT) é a escolha mais justificável academicamente porque MQTT foi projetado exatamente para telemetria de nós com recursos limitados e comunicação assíncrona.
+
+O fluxo interno ficaria assim:
+
+```
+[Container Avião] → PUBLISH mqtt://broker/voo/LA3321/telemetria
+                         ↓
+                    [Mosquitto Broker]
+                    (roteamento por tópico)
+                         ↓
+        ┌────────────────┴──────────────────┐
+        ↓                                   ↓
+[Servidor de Aplicação]             [Logger/Persistência]
+(Node.js — agrega, filtra)          (grava no TimescaleDB)
+        ↓
+[WebSocket → Browser]
+(Leaflet atualiza mapa)
+```
+
+O servidor de aplicação **não é o broker** — ele é um subscriber como qualquer outro, que transforma os dados brutos em eventos de domínio e os empurra via WebSocket para os clientes web. Isso preserva o desacoplamento: o broker não sabe nada sobre o frontend, e os aviões não sabem nada sobre o banco de dados.
+
+---
+
+## Como o sistema será testado?
+
+Três cenários de teste cobrem os problemas clássicos de sistemas distribuídos:
+
+**Crash failures:** derrubar containers de aviões individualmente com `docker kill` e verificar que o broker, o servidor e o mapa continuam funcionando normalmente. Depois derrubar o próprio broker e observar o comportamento dos aviões (devem tentar reconectar com backoff exponencial) e do frontend (deve exibir estado de desconexão sem travar).
+
+**Latência e partição de rede:** usar `tc netem` do Linux para injetar atraso e perda de pacotes na interface de rede do container:
+```bash
+tc qdisc add dev eth0 root netem delay 500ms loss 10%
+```
+Isso simula conexões de rádio intermitentes e verifica se o sistema degrada graciosamente — mensagens antigas são descartadas, o mapa congela temporariamente mas se recupera quando a rede volta.
+
+**Flash crowds:** disparar dezenas de clientes simultâneos no frontend com uma ferramenta de stress (k6 ou Artillery) para medir se o servidor de aplicação consegue fazer o fan-out dos WebSockets sem degradar a latência de entrega da telemetria.
+
+---
+
+## Faz sentido usar algum tipo de middleware?
+
+Sim, e a escolha do middleware é a decisão arquitetural mais importante do projeto. **Eclipse Mosquitto** é o mais adequado pelos seguintes motivos:
+
+O protocolo MQTT oferece três níveis de QoS configuráveis — QoS 0 (fire and forget, ideal para telemetria onde dados antigos não têm valor), QoS 1 (entrega garantida ao menos uma vez) e QoS 2 (exatamente uma vez). Para posição de aviões, QoS 0 é a escolha correta e justificável: uma posição de 2 segundos atrás é inútil, então não vale o overhead de confirmação.
+
+Além disso, o Mosquitto suporta **retained messages** — o broker armazena a última mensagem de cada tópico e a entrega imediatamente para novos subscribers. Isso resolve o problema de um cliente web que abre o mapa e precisa ver as posições atuais sem esperar o próximo tick de cada avião.
+
+---
+
+## Qual tipo de comunicação será usado?
+
+**Assíncrona, não-bloqueante, orientada a streams**, com semântica de melhor esforço (best-effort) para a telemetria.
+
+A justificativa é que posição de avião é um dado com **validade temporal curta** — se uma mensagem chega com 5 segundos de atraso, ela já não representa o estado atual do sistema. Portanto, não faz sentido bloquear o produtor esperando confirmação, nem retransmitir infinitamente uma mensagem obsoleta. O avião publica e segue para o próximo ciclo.
+
+A comunicação WebSocket entre o servidor de aplicação e o browser é a única parte **orientada a conexão persistente**, porque o browser precisa receber um stream contínuo de atualizações sem fazer polling.
+
+---
+
+## Quais são os tipos de mensagens e seus formatos?
+
+Dois tipos de mensagem com formatos distintos:
+
+**Telemetria (alta frequência, baixo valor individual):**
+```json
+{
+  "callsign": "LA3321",
+  "ts": 1713000000,
+  "lat": -23.5505,
+  "lng": -46.6333,
+  "alt": 35000,
+  "spd": 850,
+  "hdg": 180,
+  "vs": -200,
+  "phase": "cruise"
+}
+```
+Publicado no tópico `voo/LA3321/telemetria` com QoS 0 e retained=true.
+
+**Eventos de ciclo de vida (baixa frequência, alto valor):**
+```json
+{
+  "evento": "decolou",
+  "callsign": "LA3321",
+  "origin": "GRU",
+  "destination": "GIG",
+  "ts": 1713000000
+}
+```
+Publicado em `voo/eventos` com QoS 1 — esse vale a pena garantir entrega porque é informação não-redundante.
+
+---
+
+## Quais recursos precisam ser nomeados/identificados?
+
+Quatro categorias de recursos precisam de identidade clara:
+
+Os **nós produtores** (containers de aviões) identificados pelo callsign, que funciona como nome plano único no sistema. Os **tópicos MQTT** que são o esquema de nomeação hierárquico (`voo/{callsign}/telemetria`, `voo/{callsign}/eventos`, `voo/todos/alertas`). Os **endpoints de rede** do broker (porta 1883 MQTT, porta 9001 WebSocket). E o **servidor de aplicação** como ponto de agregação identificado por hostname fixo no Docker network.
+
+---
+
+## Qual esquema de nomeação?
+
+**Nomeação estruturada hierárquica** para os tópicos, combinada com **nomeação por atributos** para o roteamento. O tópico `voo/LATAM/LA3321/telemetria` encoda uma hierarquia que permite subscrições em diferentes granularidades:
+
+- `voo/#` — toda telemetria de todos os voos
+- `voo/LATAM/#` — apenas voos LATAM
+- `voo/+/telemetria` — telemetria de qualquer voo específico
+- `voo/LA3321/telemetria` — um voo exato
+
+Isso é **roteamento baseado em conteúdo** na prática — o broker resolve o destino examinando o tópico, não um endereço IP.
+
+---
+
+## Faz sentido usar Threads?
+
+Sim, no servidor de aplicação especificamente. O servidor precisa fazer três coisas simultaneamente: receber mensagens do broker MQTT, processar e agregar os dados, e fazer fan-out via WebSocket para múltiplos clientes. Em Node.js isso é tratado pelo event loop com I/O não-bloqueante, o que é funcionalmente equivalente a um modelo multithread para operações de I/O. Se o processamento fosse CPU-intensivo (cálculo de rotas, detecção de conflito de trajetórias), seria necessário Worker Threads ou um processo separado para não bloquear o event loop.
+
+---
+
+## Servidores Stateful ou Stateless?
+
+**Híbrido com justificativa clara.** O broker Mosquitto é stateless em relação à lógica de negócio — ele só roteia mensagens. O servidor de aplicação mantém **estado mínimo em memória**: a última posição conhecida de cada avião (necessário para responder novos clientes WebSocket imediatamente). Esse estado é **reconstituível** — se o servidor reiniciar, os aviões continuarão publicando e o estado se reconstrói em segundos. O banco de dados é o único componente verdadeiramente stateful e persistente.
+
+---
+
+## Será necessário algum mecanismo de sincronização? Exclusão mútua? Eleição?
+
+**Exclusão mútua distribuída: não é necessária.** Cada avião é o único escritor do seu próprio tópico (`voo/LA3321/telemetria`), então não há condição de corrida na escrita. O broker serializa naturalmente as mensagens por tópico.
+
+**Sincronização de relógio: necessária e frequentemente ignorada.** Os containers terão relógios ligeiramente dessincronizados. Para ordenar eventos corretamente (especialmente detectar se uma mensagem chegou fora de ordem), deve-se usar **timestamps lógicos de Lamport** ou simplesmente confiar no NTP do host Docker e aceitar uma margem de erro de dezenas de milissegundos — aceitável para rastreamento de aviões.
+
+**Algoritmo de eleição: desnecessário** nessa arquitetura porque o broker é um ponto central intencional, não um par em um cluster. Se quisesse eliminar o single point of failure do broker, precisaria de um cluster Mosquitto com eleição de líder — mas isso adiciona complexidade além do escopo do projeto.
+
+---
+
+## Se vai usar pub/sub, como será implementado?
+
+**Mosquitto como broker real dentro de um container Docker**, com os aviões conectando via MQTT puro (porta 1883) e o servidor de aplicação também como subscriber MQTT. O frontend recebe os dados via WebSocket (porta 9001 do Mosquitto ou via servidor de aplicação).
+
+A topologia de subscrições fica:
+
+```
+aviões         → PUBLISH → broker (Mosquitto)
+servidor-app   → SUBSCRIBE voo/+/telemetria, voo/eventos
+logger         → SUBSCRIBE voo/#  (tudo, para persistência)
+browser        → SUBSCRIBE via WebSocket ao servidor-app
+```
+
+Isso é pub/sub real com middleware real — diferente das versões anteriores onde o broker era simulado em código.
