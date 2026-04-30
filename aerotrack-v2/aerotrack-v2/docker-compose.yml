@@ -1,0 +1,322 @@
+version: "3.9"
+
+# ═══════════════════════════════════════════════════════════════════════════════
+#  AeroTrack BR — Sistema Distribuído de Rastreamento de Aviões
+#
+#  Arquitetura:
+#    aviões (publishers) → Mosquitto MQTT (broker) → servidor (subscriber+WS) → frontend
+#
+#  Acesso:
+#    Mapa:      http://localhost:3000
+#    API REST:  http://localhost:4000/status
+#               http://localhost:4000/voos
+#               http://localhost:4000/eventos
+#               http://localhost:4000/historico/{CALLSIGN}
+#    MQTT:      mqtt://localhost:1883
+#
+#  Uso:
+#    docker-compose up --build
+#    ./scripts/add-aviao.sh LA9999 LATAM LA GRU POA
+#    ./scripts/crash-test.sh          (testa tolerância a falhas)
+#    ./scripts/network-delay.sh       (injeta latência)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+networks:
+  aerotrack-net:
+    driver: bridge
+
+volumes:
+  mosquitto-data:
+  postgres-data:
+
+services:
+
+  # ════════════════════════════════════════════════════════════════════
+  #  BROKER — Eclipse Mosquitto MQTT (middleware real)
+  # ════════════════════════════════════════════════════════════════════
+  broker:
+    build: ./broker
+    container_name: aerotrack-broker
+    ports:
+      - "1883:1883"   # MQTT nativo
+      - "9001:9001"   # MQTT sobre WebSocket
+    volumes:
+      - mosquitto-data:/mosquitto/data
+    networks:
+      - aerotrack-net
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "mosquitto_sub", "-h", "localhost", "-p", "1883",
+             "-t", "$$SYS/broker/uptime", "-C", "1", "-W", "3"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
+
+  # ════════════════════════════════════════════════════════════════════
+  #  BANCO DE DADOS — PostgreSQL
+  # ════════════════════════════════════════════════════════════════════
+  banco:
+    image: postgres:16-alpine
+    container_name: aerotrack-banco
+    environment:
+      POSTGRES_DB:       aerotrack
+      POSTGRES_USER:     aerotrack
+      POSTGRES_PASSWORD: aerotrack
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./banco/init.sql:/docker-entrypoint-initdb.d/init.sql
+    networks:
+      - aerotrack-net
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U aerotrack"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ════════════════════════════════════════════════════════════════════
+  #  SERVIDOR DE APLICAÇÃO — MQTT Subscriber + WebSocket + REST
+  # ════════════════════════════════════════════════════════════════════
+  servidor:
+    build: ./servidor
+    container_name: aerotrack-servidor
+    ports:
+      - "4000:4000"
+    environment:
+      BROKER_URL:   mqtt://broker:1883
+      HTTP_PORT:    "4000"
+      DATABASE_URL: postgresql://aerotrack:aerotrack@banco:5432/aerotrack
+    networks:
+      - aerotrack-net
+    depends_on:
+      broker:
+        condition: service_healthy
+      banco:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # ════════════════════════════════════════════════════════════════════
+  #  FRONTEND — Nginx + Leaflet
+  # ════════════════════════════════════════════════════════════════════
+  frontend:
+    build: ./frontend
+    container_name: aerotrack-frontend
+    ports:
+      - "3000:80"
+    networks:
+      - aerotrack-net
+    depends_on:
+      - servidor
+    restart: unless-stopped
+
+  # ════════════════════════════════════════════════════════════════════
+  #  AVIÕES — Publishers MQTT (1 container = 1 avião)
+  # ════════════════════════════════════════════════════════════════════
+
+  # ── LATAM ──────────────────────────────────────────────────────────
+  aviao-la3105:
+    build: ./aviao
+    container_name: aviao-LA3105
+    environment:
+      BROKER_URL:   mqtt://broker:1883
+      CALLSIGN:     LA3105
+      AIRLINE:      LATAM
+      IATA_AIRLINE: LA
+      ORIGIN:       GRU
+      DESTINATION:  GIG
+      UPDATE_MS:    "1000"
+    networks: [aerotrack-net]
+    depends_on:
+      broker:
+        condition: service_healthy
+    restart: on-failure:5
+
+  aviao-la3240:
+    build: ./aviao
+    container_name: aviao-LA3240
+    environment:
+      BROKER_URL:   mqtt://broker:1883
+      CALLSIGN:     LA3240
+      AIRLINE:      LATAM
+      IATA_AIRLINE: LA
+      ORIGIN:       GIG
+      DESTINATION:  BSB
+      UPDATE_MS:    "1000"
+    networks: [aerotrack-net]
+    depends_on:
+      broker:
+        condition: service_healthy
+    restart: on-failure:5
+
+  aviao-la4570:
+    build: ./aviao
+    container_name: aviao-LA4570
+    environment:
+      BROKER_URL:   mqtt://broker:1883
+      CALLSIGN:     LA4570
+      AIRLINE:      LATAM
+      IATA_AIRLINE: LA
+      ORIGIN:       BSB
+      DESTINATION:  FOR
+      UPDATE_MS:    "1000"
+    networks: [aerotrack-net]
+    depends_on:
+      broker:
+        condition: service_healthy
+    restart: on-failure:5
+
+  aviao-la9901:
+    build: ./aviao
+    container_name: aviao-LA9901
+    environment:
+      BROKER_URL:   mqtt://broker:1883
+      CALLSIGN:     LA9901
+      AIRLINE:      LATAM
+      IATA_AIRLINE: LA
+      ORIGIN:       GRU
+      DESTINATION:  MAO
+      UPDATE_MS:    "1200"
+    networks: [aerotrack-net]
+    depends_on:
+      broker:
+        condition: service_healthy
+    restart: on-failure:5
+
+  # ── GOL ────────────────────────────────────────────────────────────
+  aviao-g31820:
+    build: ./aviao
+    container_name: aviao-G31820
+    environment:
+      BROKER_URL:   mqtt://broker:1883
+      CALLSIGN:     G31820
+      AIRLINE:      GOL
+      IATA_AIRLINE: G3
+      ORIGIN:       GRU
+      DESTINATION:  SSA
+      UPDATE_MS:    "1000"
+    networks: [aerotrack-net]
+    depends_on:
+      broker:
+        condition: service_healthy
+    restart: on-failure:5
+
+  aviao-g32001:
+    build: ./aviao
+    container_name: aviao-G32001
+    environment:
+      BROKER_URL:   mqtt://broker:1883
+      CALLSIGN:     G32001
+      AIRLINE:      GOL
+      IATA_AIRLINE: G3
+      ORIGIN:       CWB
+      DESTINATION:  GRU
+      UPDATE_MS:    "1000"
+    networks: [aerotrack-net]
+    depends_on:
+      broker:
+        condition: service_healthy
+    restart: on-failure:5
+
+  aviao-g31543:
+    build: ./aviao
+    container_name: aviao-G31543
+    environment:
+      BROKER_URL:   mqtt://broker:1883
+      CALLSIGN:     G31543
+      AIRLINE:      GOL
+      IATA_AIRLINE: G3
+      ORIGIN:       POA
+      DESTINATION:  FOR
+      UPDATE_MS:    "1000"
+    networks: [aerotrack-net]
+    depends_on:
+      broker:
+        condition: service_healthy
+    restart: on-failure:5
+
+  aviao-g31100:
+    build: ./aviao
+    container_name: aviao-G31100
+    environment:
+      BROKER_URL:   mqtt://broker:1883
+      CALLSIGN:     G31100
+      AIRLINE:      GOL
+      IATA_AIRLINE: G3
+      ORIGIN:       SSA
+      DESTINATION:  REC
+      UPDATE_MS:    "800"
+    networks: [aerotrack-net]
+    depends_on:
+      broker:
+        condition: service_healthy
+    restart: on-failure:5
+
+  # ── AZUL ───────────────────────────────────────────────────────────
+  aviao-ad4490:
+    build: ./aviao
+    container_name: aviao-AD4490
+    environment:
+      BROKER_URL:   mqtt://broker:1883
+      CALLSIGN:     AD4490
+      AIRLINE:      AZUL
+      IATA_AIRLINE: AD
+      ORIGIN:       VCP
+      DESTINATION:  REC
+      UPDATE_MS:    "1000"
+    networks: [aerotrack-net]
+    depends_on:
+      broker:
+        condition: service_healthy
+    restart: on-failure:5
+
+  aviao-ad4512:
+    build: ./aviao
+    container_name: aviao-AD4512
+    environment:
+      BROKER_URL:   mqtt://broker:1883
+      CALLSIGN:     AD4512
+      AIRLINE:      AZUL
+      IATA_AIRLINE: AD
+      ORIGIN:       MAO
+      DESTINATION:  GRU
+      UPDATE_MS:    "1000"
+    networks: [aerotrack-net]
+    depends_on:
+      broker:
+        condition: service_healthy
+    restart: on-failure:5
+
+  aviao-ad5633:
+    build: ./aviao
+    container_name: aviao-AD5633
+    environment:
+      BROKER_URL:   mqtt://broker:1883
+      CALLSIGN:     AD5633
+      AIRLINE:      AZUL
+      IATA_AIRLINE: AD
+      ORIGIN:       BEL
+      DESTINATION:  BSB
+      UPDATE_MS:    "1000"
+    networks: [aerotrack-net]
+    depends_on:
+      broker:
+        condition: service_healthy
+    restart: on-failure:5
+
+  aviao-ad7710:
+    build: ./aviao
+    container_name: aviao-AD7710
+    environment:
+      BROKER_URL:   mqtt://broker:1883
+      CALLSIGN:     AD7710
+      AIRLINE:      AZUL
+      IATA_AIRLINE: AD
+      ORIGIN:       FOR
+      DESTINATION:  GIG
+      UPDATE_MS:    "1000"
+    networks: [aerotrack-net]
+    depends_on:
+      broker:
+        condition: service_healthy
+    restart: on-failure:5

@@ -1,0 +1,8 @@
+{
+  "name": "aerotrack-aviao",
+  "version": "2.0.0",
+  "description": "AeroTrack BR — Simulador de avião (MQTT Publisher)",
+  "main": "simulator.js",
+  "scripts": { "start": "node simulator.js" },
+  "dependencies": { "mqtt": "^5.3.4" }
+}

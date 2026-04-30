@@ -1,0 +1,12 @@
+{
+  "name": "aerotrack-servidor",
+  "version": "2.0.0",
+  "description": "AeroTrack BR — Servidor de aplicação (MQTT Subscriber + WS + REST)",
+  "main": "server.js",
+  "scripts": { "start": "node server.js" },
+  "dependencies": {
+    "mqtt": "^5.3.4",
+    "ws": "^8.16.0",
+    "pg": "^8.11.3"
+  }
+}
