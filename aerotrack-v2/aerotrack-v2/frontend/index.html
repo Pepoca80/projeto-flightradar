@@ -126,9 +126,41 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:var(--m
 .nb-sub{background:rgba(0,255,136,.1);color:var(--green);border:1px solid rgba(0,255,136,.25)}
 #clock{margin-left:auto;color:var(--text);letter-spacing:1px}
 
-/* Leaflet tweaks */
-.leaflet-tile{filter:brightness(.82) saturate(.65)}
-.leaflet-control-zoom a{background:var(--surface)!important;color:var(--text)!important;border-color:var(--border)!important}
+/* ── Leaflet Tweaks ── */
+.leaflet-tile { filter: brightness(.82) saturate(.65); }
+.leaflet-control-zoom a { background: var(--surface)!important; color: var(--text)!important; border-color: var(--border)!important; }
+
+/* Customização do Menu de Camadas (Topo Direito) */
+.leaflet-control-layers {
+  background: rgba(17, 24, 39, 0.9) !important; /* var(--surface) com opacidade */
+  border: 1px solid var(--border) !important;
+  border-radius: 4px !important;
+  color: var(--text) !important;
+  font-family: var(--mono) !important;
+  font-size: 10px !important;
+  box-shadow: none !important;
+}
+
+/* Ícone do botão (SVG em Ciano) */
+.leaflet-control-layers-toggle {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%2300d4ff' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolygon points='1 6 1 22 8 18 16 22 23 18 23 2 16 6 8 2 1 6'%3E%3C/polygon%3E%3Cline x1='8' y1='2' x2='8' y2='18'%3E%3C/line%3E%3Cline x1='16' y1='6' x2='16' y2='22'%3E%3C/line%3E%3C/svg%3E") !important;
+  background-size: 18px !important;
+  background-color: var(--surface) !important;
+}
+
+.leaflet-control-layers-expanded {
+  padding: 8px 12px !important;
+  background: var(--surface) !important;
+}
+
+.leaflet-control-layers label {
+  margin-bottom: 4px !important;
+  cursor: pointer;
+}
+
+.leaflet-control-layers label:hover {
+  color: var(--accent);
+}
 </style>
 </head>
 <body>
@@ -246,9 +278,29 @@ let srvMetrics={};
 let ws=null;
 
 // ─── Mapa Leaflet ─────────────────────────────────────────────────────────────
-const map = L.map('map',{zoomControl:false,attributionControl:false}).setView([-14,-51],4);
-L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_nolabels/{z}/{x}/{y}{r}.png',{maxZoom:18}).addTo(map);
+// 1. Definir os provedores de mapa
+const mapaEscuro = L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_nolabels/{z}/{x}/{y}{r}.png',{maxZoom:18});
+const mapaSatelite = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {maxZoom: 19});
+const mapaTopografico = L.tileLayer('https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png', {maxZoom: 17});
+
+// 2. Criar o mapa iniciando com a camada escura
+const map = L.map('map',{
+    zoomControl:false,
+    attributionControl:false,
+    layers: [mapaEscuro] // Define o mapa escuro como o padrão ao carregar
+}).setView([-14,-51],4);
+
+// 3. Adicionar o controle de zoom
 L.control.zoom({position:'bottomright'}).addTo(map);
+
+// 4. Criar a lista de opções e adicionar o botão de menu no mapa
+const mapasBase = {
+    "Modo Noturno (Padrão)": mapaEscuro,
+    "Satélite": mapaSatelite,
+    "Topografia": mapaTopografico
+};
+
+L.control.layers(mapasBase, null, {position: 'topright'}).addTo(map);
 
 Object.entries(AIRPORTS).forEach(([code,ap])=>{
   const icon=L.divIcon({className:'',
