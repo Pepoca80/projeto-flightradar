@@ -69,7 +69,7 @@ Eventos de ciclo de vida (decolou/pousou) não são redundantes — perder um ca
 
 ---
 
-## Início Rápido
+## Tutorial para Executar o Projeto
 
 ### Pré-requisitos
 - Docker 24+
@@ -77,7 +77,7 @@ Eventos de ciclo de vida (decolou/pousou) não são redundantes — perder um ca
 
 ```bash
 # 1. Clonar / entrar no diretório
-cd aerotrack-v2
+cd projeto-flightradar
 
 # 2. Subir tudo
 docker-compose up --build
