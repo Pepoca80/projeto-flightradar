@@ -3,34 +3,31 @@
  * AeroTrack BR — Servidor de Aplicação
  *
  * Responsabilidades:
- *  1. Subscriber MQTT: consome telemetria e eventos dos aviões
- *  2. Agrega estado atual de cada voo em memória (stateful mínimo, reconstituível)
- *  3. WebSocket server: faz fan-out para clientes web em tempo real
+ *  1. Subscriber MQTT (Dinâmico via GeoDNS): consome telemetria e eventos
+ *  2. Agrega estado atual de cada voo em memória
+ *  3. WebSocket server: faz distribuição para clientes web em tempo real
  *  4. REST API: endpoints para histórico, status e métricas
- *  5. Persiste eventos no PostgreSQL (TimescaleDB-compatible)
- *
- * Conceitos de SD:
- *  - Subscriber desacoplado do publisher (aviões)
- *  - Estado reconstituível (stateless em relação ao broker)
- *  - Fan-out eficiente via WebSocket
- *  - Servidor multithread via cluster Node.js (opcional)
+ *  5. Persiste eventos no Apache Cassandra
  */
 
 const mqtt      = require('mqtt');
 const WebSocket = require('ws');
 const http      = require('http');
-const { Pool }  = require('pg');
+const cassandra = require('cassandra-driver');
 
 // ─── Configuração ─────────────────────────────────────────────────────────────
 const CFG = {
-  brokerUrl:  process.env.BROKER_URL  || 'mqtt://broker:1883',
   httpPort:   parseInt(process.env.HTTP_PORT || '4000'),
-  dbUrl:      process.env.DATABASE_URL || 'postgresql://aerotrack:aerotrack@banco:5432/aerotrack',
   clientId:   `servidor_app_${Date.now()}`,
+  dbContact:  process.env.CASSANDRA_CONTACT_POINTS || 'banco',
+  dbDc:       process.env.CASSANDRA_DATACENTER || 'datacenter1',
+  dbKeyspace: process.env.CASSANDRA_KEYSPACE || 'usp_airlines',
+  geoDnsUrl:  process.env.GEODNS_URL || 'http://geodns:8080',
+  lat:        process.env.SERVER_LAT || '-23.5505',
+  lon:        process.env.SERVER_LON || '-46.6333'
 };
 
 // ─── Estado em memória (reconstituível) ───────────────────────────────────────
-// Chave: callsign → última telemetria conhecida
 const flightState = new Map();
 let   totalMsgs   = 0;
 let   msgsPerSec  = 0;
@@ -38,77 +35,101 @@ let   msgsWindow  = 0;
 
 setInterval(() => { msgsPerSec = msgsWindow; msgsWindow = 0; }, 1000);
 
-// ─── PostgreSQL ───────────────────────────────────────────────────────────────
-const db = new Pool({ connectionString: CFG.dbUrl });
+// ─── Apache Cassandra ─────────────────────────────────────────────────────────
+const dbClient = new cassandra.Client({
+  contactPoints: [CFG.dbContact],
+  localDataCenter: CFG.dbDc,
+  keyspace: CFG.dbKeyspace
+});
 
 async function initDb() {
-  const client = await db.connect();
+  const setupClient = new cassandra.Client({
+    contactPoints: [CFG.dbContact],
+    localDataCenter: CFG.dbDc
+  });
+
   try {
-    await client.query(`
-      CREATE TABLE IF NOT EXISTS telemetria (
-        id          BIGSERIAL PRIMARY KEY,
-        callsign    VARCHAR(16) NOT NULL,
-        airline     VARCHAR(64),
-        origin      VARCHAR(4),
-        destination VARCHAR(4),
-        lat         DOUBLE PRECISION,
-        lng         DOUBLE PRECISION,
-        altitude    INTEGER,
-        speed       INTEGER,
-        heading     INTEGER,
-        phase       VARCHAR(16),
-        progress    DOUBLE PRECISION,
-        ts          BIGINT,
-        created_at  TIMESTAMPTZ DEFAULT NOW()
-      );
+    await setupClient.connect();
+    
+    await setupClient.execute(`
+      CREATE KEYSPACE IF NOT EXISTS ${CFG.dbKeyspace}
+      WITH replication = {'class': 'SimpleStrategy', 'replication_factor': 1};
     `);
-    await client.query(`
-      CREATE TABLE IF NOT EXISTS eventos (
-        id         BIGSERIAL PRIMARY KEY,
-        callsign   VARCHAR(16) NOT NULL,
-        evento     VARCHAR(32) NOT NULL,
-        payload    JSONB,
-        created_at TIMESTAMPTZ DEFAULT NOW()
-      );
+
+    await setupClient.execute(`
+      CREATE TABLE IF NOT EXISTS ${CFG.dbKeyspace}.telemetria_by_callsign (
+        callsign    text,
+        ts          bigint,
+        id          timeuuid,
+        airline     text,
+        origin      text,
+        destination text,
+        lat         double,
+        lng         double,
+        altitude    int,
+        speed       int,
+        heading     int,
+        phase       text,
+        progress    double,
+        created_at  timestamp,
+        PRIMARY KEY ((callsign), ts, id)
+      ) WITH CLUSTERING ORDER BY (ts DESC, id DESC);
     `);
-    // Índices para consultas por voo e tempo
-    await client.query(`CREATE INDEX IF NOT EXISTS idx_tel_callsign ON telemetria(callsign);`);
-    await client.query(`CREATE INDEX IF NOT EXISTS idx_tel_ts       ON telemetria(ts);`);
-    await client.query(`CREATE INDEX IF NOT EXISTS idx_evt_callsign ON eventos(callsign);`);
-    console.log('[SERVIDOR] ✓ Banco de dados inicializado');
+
+    await setupClient.execute(`
+      CREATE TABLE IF NOT EXISTS ${CFG.dbKeyspace}.eventos_latest (
+        bucket      text,
+        created_at  timestamp,
+        id          timeuuid,
+        callsign    text,
+        evento      text,
+        payload     text,
+        PRIMARY KEY ((bucket), created_at, id)
+      ) WITH CLUSTERING ORDER BY (created_at DESC, id DESC);
+    `);
+    
+    console.log('[SERVIDOR] ✓ Banco de dados inicializado com sucesso');
   } catch (err) {
     console.error('[SERVIDOR] Erro ao inicializar banco:', err.message);
   } finally {
-    client.release();
+    await setupClient.shutdown();
   }
 }
 
 async function persistTelemetria(data) {
+  const query = `
+    INSERT INTO telemetria_by_callsign 
+    (callsign, ts, id, airline, origin, destination, lat, lng, altitude, speed, heading, phase, progress, created_at)
+    VALUES (?, ?, now(), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, toTimestamp(now()))
+  `;
+  const params = [
+    data.callsign, data.ts, data.airline, data.origin, data.destination,
+    data.lat, data.lng, data.altitude, data.speed, data.heading,
+    data.phase, data.progress
+  ];
+
   try {
-    await db.query(
-      `INSERT INTO telemetria (callsign,airline,origin,destination,lat,lng,altitude,speed,heading,phase,progress,ts)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,
-      [data.callsign, data.airline, data.origin, data.destination,
-       data.lat, data.lng, data.altitude, data.speed, data.heading,
-       data.phase, data.progress, data.ts]
-    );
+    await dbClient.execute(query, params, { prepare: true });
   } catch (err) {
     console.error('[SERVIDOR] Erro ao persistir telemetria:', err.message);
   }
 }
 
 async function persistEvento(callsign, evento, payload) {
+  const query = `
+    INSERT INTO eventos_latest (bucket, created_at, id, callsign, evento, payload)
+    VALUES ('eventos', toTimestamp(now()), now(), ?, ?, ?)
+  `;
+  const params = [callsign, evento, JSON.stringify(payload)];
+
   try {
-    await db.query(
-      `INSERT INTO eventos (callsign, evento, payload) VALUES ($1,$2,$3)`,
-      [callsign, evento, JSON.stringify(payload)]
-    );
+    await dbClient.execute(query, params, { prepare: true });
   } catch (err) {
     console.error('[SERVIDOR] Erro ao persistir evento:', err.message);
   }
 }
 
-// ─── WebSocket Server (fan-out para browsers) ─────────────────────────────────
+// ─── WebSocket Server ─────────────────────────────────────────────────────────
 const httpServer = http.createServer(handleHttp);
 const wss = new WebSocket.Server({ server: httpServer });
 
@@ -118,7 +139,6 @@ wss.on('connection', (ws, req) => {
   wsClients.add(ws);
   console.log(`[SERVIDOR] + Cliente WS conectado | total=${wsClients.size}`);
 
-  // Enviar estado atual de todos os voos ao novo cliente (snapshot)
   const snapshot = {
     type:    'SNAPSHOT',
     flights: Object.fromEntries(flightState),
@@ -144,47 +164,75 @@ function broadcast(msg) {
   });
 }
 
-// ─── MQTT Subscriber ──────────────────────────────────────────────────────────
-const mqttClient = mqtt.connect(CFG.brokerUrl, {
-  clientId:        CFG.clientId,
-  clean:           true,
-  reconnectPeriod: 3000,
-});
+// ─── MQTT Subscriber Inteligente via GeoDNS ───────────────────────────────────
+let mqttClient = null;
 
-mqttClient.on('connect', () => {
-  console.log('[SERVIDOR] ✓ Conectado ao broker MQTT');
+async function obterRotaGeoDns() {
+  try {
+    const resposta = await fetch(`${CFG.geoDnsUrl}/resolver?lat=${CFG.lat}&lon=${CFG.lon}`);
+    const dados = await resposta.json();
+    return dados.brokerUrl;
+  } catch (erro) {
+    console.error('[SERVIDOR] Erro ao consultar a API do GeoDNS:', erro);
+    return null;
+  }
+}
 
-  // Subscrever toda telemetria: voo/{airline}/{callsign}/telemetria
-  mqttClient.subscribe('voo/+/+/telemetria', { qos: 0 });
-  // Subscrever todos os eventos de ciclo de vida
-  mqttClient.subscribe('voo/eventos', { qos: 1 });
+async function iniciarConexaoMqtt() {
+  if (mqttClient) {
+    mqttClient.end();
+  }
 
-  console.log('[SERVIDOR] Subscrito: voo/+/+/telemetria | voo/eventos');
-});
+  const brokerUrl = await obterRotaGeoDns();
 
-mqttClient.on('message', (topic, message) => {
-  totalMsgs++;
-  msgsWindow++;
-
-  let payload;
-  try { payload = JSON.parse(message.toString()); }
-  catch { return; }
-
-  if (topic === 'voo/eventos') {
-    handleEvento(payload);
+  if (!brokerUrl) {
+    console.log('[SERVIDOR] Falha ao obter rota. Tentando novamente em 5 segundos...');
+    setTimeout(iniciarConexaoMqtt, 5000);
     return;
   }
 
-  if (topic.endsWith('/telemetria')) {
-    handleTelemetria(payload);
-  }
-});
+  console.log(`[SERVIDOR] Rota encontrada. Iniciando conexao MQTT via GeoDNS: ${brokerUrl}`);
 
-mqttClient.on('reconnect', () => console.log('[SERVIDOR] Reconectando ao broker MQTT...'));
-mqttClient.on('error', (err) => console.error('[SERVIDOR] Erro MQTT:', err.message));
+  mqttClient = mqtt.connect(brokerUrl, {
+    clientId: CFG.clientId,
+    clean: true,
+    reconnectPeriod: 0, 
+  });
 
-// Persistir telemetria a cada N ticks para não sobrecarregar o banco
-// (evita write amplification — guarda 1 de cada 10 posições)
+  mqttClient.on('connect', () => {
+    console.log('[SERVIDOR] ✓ Conectado ao broker MQTT com sucesso');
+    mqttClient.subscribe('voo/+/+/telemetria', { qos: 0 });
+    mqttClient.subscribe('voo/eventos', { qos: 1 });
+  });
+
+  mqttClient.on('message', (topic, message) => {
+    totalMsgs++;
+    msgsWindow++;
+
+    let payload;
+    try { payload = JSON.parse(message.toString()); }
+    catch { return; }
+
+    if (topic === 'voo/eventos') {
+      handleEvento(payload);
+      return;
+    }
+
+    if (topic.endsWith('/telemetria')) {
+      handleTelemetria(payload);
+    }
+  });
+
+  mqttClient.on('offline', () => {
+    console.warn('[SERVIDOR] Broker offline. Solicitando rota alternativa ao GeoDNS em 3 segundos...');
+    setTimeout(iniciarConexaoMqtt, 3000);
+  });
+
+  mqttClient.on('error', (err) => {
+    console.error('[SERVIDOR] Erro na conexao MQTT:', err.message);
+  });
+}
+
 const PERSIST_EVERY = 10;
 const persistCounters = new Map();
 
@@ -192,10 +240,8 @@ function handleTelemetria(data) {
   const cs = data.callsign;
   flightState.set(cs, data);
 
-  // Fan-out para browsers
   broadcast({ type: 'TELEMETRIA', payload: data, ts: Date.now() });
 
-  // Persistência amostrada
   const cnt = (persistCounters.get(cs) || 0) + 1;
   persistCounters.set(cs, cnt);
   if (cnt % PERSIST_EVERY === 0) {
@@ -234,36 +280,32 @@ function handleHttp(req, res) {
 
   const url = req.url.split('?')[0];
 
-  // GET /status — métricas do servidor
   if (url === '/status') {
     res.writeHead(200);
     return res.end(JSON.stringify({ status: 'ok', ...getMetrics() }, null, 2));
   }
 
-  // GET /voos — estado atual de todos os voos
   if (url === '/voos') {
     res.writeHead(200);
     return res.end(JSON.stringify(Object.fromEntries(flightState), null, 2));
   }
 
-  // GET /voos/:callsign — estado de um voo específico
   const voosMatch = url.match(/^\/voos\/([A-Z0-9]+)$/);
   if (voosMatch) {
     const cs = voosMatch[1];
     const flight = flightState.get(cs);
-    if (!flight) { res.writeHead(404); return res.end(JSON.stringify({ error: 'Voo não encontrado' })); }
+    if (!flight) { res.writeHead(404); return res.end(JSON.stringify({ error: 'Voo nao encontrado' })); }
     res.writeHead(200);
     return res.end(JSON.stringify(flight, null, 2));
   }
 
-  // GET /historico/:callsign — últimas 100 posições do banco
   const histMatch = url.match(/^\/historico\/([A-Z0-9]+)$/);
   if (histMatch) {
     const cs = histMatch[1];
-    db.query(
-      `SELECT lat, lng, altitude, speed, heading, phase, ts
-       FROM telemetria WHERE callsign=$1 ORDER BY ts DESC LIMIT 100`,
-      [cs]
+    dbClient.execute(
+      `SELECT lat, lng, altitude, speed, heading, phase, ts FROM telemetria_by_callsign WHERE callsign = ? LIMIT 100`,
+      [cs],
+      { prepare: true }
     ).then(result => {
       res.writeHead(200);
       res.end(JSON.stringify({ callsign: cs, points: result.rows }));
@@ -274,9 +316,8 @@ function handleHttp(req, res) {
     return;
   }
 
-  // GET /eventos — últimos 50 eventos
   if (url === '/eventos') {
-    db.query(`SELECT callsign, evento, payload, created_at FROM eventos ORDER BY id DESC LIMIT 50`)
+    dbClient.execute(`SELECT callsign, evento, payload, created_at FROM eventos_latest WHERE bucket = 'eventos' LIMIT 50`)
       .then(result => {
         res.writeHead(200);
         res.end(JSON.stringify(result.rows));
@@ -288,40 +329,41 @@ function handleHttp(req, res) {
   }
 
   res.writeHead(404);
-  res.end(JSON.stringify({ error: 'Rota não encontrada' }));
+  res.end(JSON.stringify({ error: 'Rota nao encontrada' }));
 }
 
 // ─── Inicialização ────────────────────────────────────────────────────────────
 async function main() {
-  // Aguardar banco ficar disponível
+  await initDb();
+  
   let dbOk = false;
   for (let i = 0; i < 10; i++) {
     try {
-      await db.query('SELECT 1');
+      await dbClient.connect();
       dbOk = true;
       break;
     } catch {
-      console.log(`[SERVIDOR] Aguardando banco... tentativa ${i+1}/10`);
+      console.log(`[SERVIDOR] Aguardando conexao com o Cassandra... tentativa ${i+1}/10`);
       await new Promise(r => setTimeout(r, 3000));
     }
   }
+  
   if (!dbOk) {
-    console.error('[SERVIDOR] Banco indisponível após 10 tentativas. Continuando sem persistência.');
-  } else {
-    await initDb();
+    console.error('[SERVIDOR] Banco indisponivel. Continuando sem persistencia.');
   }
 
   httpServer.listen(CFG.httpPort, '0.0.0.0', () => {
     console.log(`[SERVIDOR] HTTP/WebSocket na porta ${CFG.httpPort}`);
-    console.log(`[SERVIDOR] REST: http://localhost:${CFG.httpPort}/status`);
-    console.log(`[SERVIDOR] WS:   ws://localhost:${CFG.httpPort}`);
   });
+
+  iniciarConexaoMqtt();
 }
 
 main().catch(err => { console.error('[SERVIDOR] Erro fatal:', err); process.exit(1); });
 
 process.on('SIGTERM', () => {
-  console.log('[SERVIDOR] SIGTERM — encerrando conexões.');
-  mqttClient.end();
+  console.log('[SERVIDOR] Encerrando conexoes.');
+  if (mqttClient) mqttClient.end();
+  dbClient.shutdown();
   httpServer.close(() => process.exit(0));
 });

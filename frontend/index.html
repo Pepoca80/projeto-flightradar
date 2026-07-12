@@ -562,7 +562,7 @@ function renderHistorico(){
   document.getElementById('list').innerHTML=`
     <div style="padding:14px;font-size:10px">
       <div style="font-family:var(--display);font-size:13px;font-weight:800;color:var(--accent);margin-bottom:10px">HISTÓRICO</div>
-      <div style="color:var(--muted);margin-bottom:10px">Selecione um voo na aba "Voos" e clique abaixo para ver o histórico de posições no banco.</div>
+      <div style="color:var(--muted);margin-bottom:10px">Selecione um voo na aba "Voos" e clique abaixo para ver o histórico de posições no Cassandra.</div>
       <button onclick="loadHistorico()" style="background:rgba(0,212,255,.1);border:1px solid rgba(0,212,255,.3);color:var(--accent);padding:6px 12px;border-radius:3px;cursor:pointer;font-family:var(--mono);font-size:10px;letter-spacing:1px">
         CARREGAR HISTÓRICO DE ${selFlight||'?'}
       </button>
@@ -578,7 +578,7 @@ function loadHistorico(){
       +(d.points||[]).slice(0,10).map(p=>
         `<div style="color:var(--muted)">${p.lat?.toFixed(3)}, ${p.lng?.toFixed(3)} · ${p.altitude}ft · ${p.phase}</div>`
       ).join('');
-  }).catch(()=>{ document.getElementById('hist-result').textContent='Erro ao consultar banco.'; });
+  }).catch(()=>{ document.getElementById('hist-result').textContent='Erro ao consultar Cassandra.'; });
 }
 
 function renderArquitetura(){
@@ -593,7 +593,7 @@ function renderArquitetura(){
       <div style="color:var(--muted);margin-bottom:8px">Middleware real. Roteamento por tópico hierárquico com wildcards. Porta 1883 (MQTT) e 9001 (WebSocket). Retained messages para novos subscribers. Detecta desconexões via keepalive.</div>
 
       <div style="color:var(--purple);margin-bottom:3px">③ SERVIDOR DE APLICAÇÃO (Docker)</div>
-      <div style="color:var(--muted);margin-bottom:8px">Subscriber MQTT + WebSocket server + REST API. Estado mínimo em memória (reconstituível). Fan-out para N clientes simultâneos. Persiste no PostgreSQL a cada 10 ticks.</div>
+      <div style="color:var(--muted);margin-bottom:8px">Subscriber MQTT + WebSocket server + REST API. Estado mínimo em memória (reconstituível). Fan-out para N clientes simultâneos. Persiste no Cassandra a cada 10 ticks.</div>
 
       <div style="color:var(--green);margin-bottom:3px">④ FRONTEND (Docker/Nginx)</div>
       <div style="color:var(--muted)">Subscriber via WebSocket. Recebe snapshot inicial e atualizações incrementais. Leaflet renderiza posições em tempo real.</div>

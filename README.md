@@ -1,5 +1,5 @@
-# ✈ AeroTrack BR — Sistema Distribuído de Rastreamento de Aviões
-### Projeto de Sistemas Distribuídos · MQTT · Docker · Leaflet · PostgreSQL
+# ✈ usp-airline — Sistema Distribuído de Rastreamento de Aviões
+### Projeto de Sistemas Distribuídos · MQTT · Docker · Leaflet · Cassandra
 
 ---
 
@@ -7,13 +7,13 @@
 
 ```
 ┌──────────────────────────────────────────────────────────────────────────┐
-│                        Docker Network: aerotrack-net                     │
+│                        Docker Network: usp-airline-net                  │
 │                                                                          │
 │  ┌─────────────────┐  PUBLISH QoS 0/1  ┌──────────────────────────────┐ │
-│  │  aviao-LA3105   │ ─────────────────► │                              │ │
-│  │  aviao-G31820   │ ─────────────────► │   Eclipse Mosquitto MQTT     │ │
-│  │  aviao-AD4490   │ ─────────────────► │   (middleware real)          │ │
-│  │  aviao-...      │ ─────────────────► │   porta 1883 (MQTT)          │ │
+│  │  usp-airline-aviao-LA3105 │ ─────────────────► │                              │ │
+│  │  usp-airline-aviao-G31820 │ ─────────────────► │   Eclipse Mosquitto MQTT     │ │
+│  │  usp-airline-aviao-AD4490 │ ─────────────────► │   (middleware real)          │ │
+│  │  usp-airline-aviao-...    │ ─────────────────► │   porta 1883 (MQTT)          │ │
 │  └─────────────────┘                   │   porta 9001 (WS)            │ │
 │   1 container = 1 avião                │   wildcards: voo/+/+/tel...  │ │
 │   Reconexão com backoff                │   retained messages          │ │
@@ -28,12 +28,12 @@
 │                                        │  · Estado em memória          │ │
 │                                        │  · WebSocket fan-out          │ │
 │                                        │  · REST API                   │ │
-│                                        │  · Persiste no PostgreSQL     │ │
+│                                        │  · Persiste no Cassandra      │ │
 │                                        └──────┬──────────┬─────────────┘ │
 │                                               │ WS       │ SQL           │
 │                                               ▼          ▼               │
 │                                   ┌──────────────┐  ┌──────────────┐    │
-│                                   │  Frontend    │  │  PostgreSQL  │    │
+│                                   │  Frontend    │  │  Cassandra   │    │
 │                                   │  (Nginx)     │  │  telemetria  │    │
 │                                   │  Leaflet map │  │  eventos     │    │
 │                                   └──────────────┘  └──────────────┘    │
@@ -77,10 +77,10 @@ Eventos de ciclo de vida (decolou/pousou) não são redundantes — perder um ca
 
 ```bash
 # 1. Clonar / entrar no diretório
-cd projeto-flightradar
+cd usp-airline
 
 # 2. Subir tudo
-docker-compose up --build
+docker compose up --build
 
 # 3. Acessar
 # Mapa:    http://localhost:3000
@@ -126,24 +126,24 @@ chmod +x scripts/*.sh
 ### 1. Crash Failures
 ```bash
 # Matar um avião abruptamente
-docker kill aviao-LA3105
+docker kill usp-airline-aviao-LA3105
 
 # Observar:
 # - Broker recebe o Last Will Testament do avião
 # - Servidor remove o voo do estado em memória
 # - Frontend exibe evento "desconectou" no log
 # - Container reinicia automaticamente (restart: on-failure)
-docker logs -f aerotrack-servidor
+docker logs -f usp-airline-servidor
 ```
 
 ### 2. Falha do Broker
 ```bash
-docker stop aerotrack-broker
+docker stop usp-airline-broker
 # Aviões: tentam reconectar com backoff exponencial
 # Servidor: idem — estado em memória preservado
 # Frontend: exibe "DESCONECTADO"
 
-docker start aerotrack-broker
+docker start usp-airline-broker
 # Sistema se recupera automaticamente
 ```
 
@@ -174,7 +174,7 @@ docker start aerotrack-broker
 ## Estrutura do Projeto
 
 ```
-aerotrack-v2/
+usp-airline/
 ├── broker/
 │   ├── mosquitto.conf    # Configuração do Eclipse Mosquitto
 │   └── Dockerfile
@@ -183,7 +183,7 @@ aerotrack-v2/
 │   ├── package.json
 │   └── Dockerfile
 ├── servidor/
-│   ├── server.js         # MQTT subscriber + WS + REST + PostgreSQL
+│   ├── server.js         # MQTT subscriber + WS + REST + Cassandra
 │   ├── package.json
 │   └── Dockerfile
 ├── frontend/
@@ -191,7 +191,7 @@ aerotrack-v2/
 │   ├── nginx.conf
 │   └── Dockerfile
 ├── banco/
-│   └── init.sql          # Schema PostgreSQL
+│   └── init.sql          # Schema Cassandra de referência
 ├── scripts/
 │   ├── add-aviao.sh      # Adicionar avião dinamicamente
 │   ├── crash-test.sh     # Teste de tolerância a falhas
@@ -222,7 +222,7 @@ aerotrack-v2/
 ```
 Atual (projeto):          Produção:
 Mosquitto único     →     EMQX Cluster (HA) ou HiveMQ
-PostgreSQL          →     TimescaleDB (hypertable por tempo)
+PostgreSQL          →     Cassandra (modelo wide-column por callsign)
 Node.js single      →     Cluster mode + load balancer
 Docker local        →     Kubernetes (HPA por número de voos)
 Dados simulados     →     OpenSky Network API / receptores SDR

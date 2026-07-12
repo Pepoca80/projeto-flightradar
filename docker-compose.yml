@@ -1,5 +1,5 @@
 # ═══════════════════════════════════════════════════════════════════════════════
-#  AeroTrack BR — Sistema Distribuído de Rastreamento de Aviões
+#  usp-airline — Sistema Distribuído de Rastreamento de Aviões
 #
 #  Arquitetura:
 #    aviões (publishers) → Mosquitto MQTT (broker) → servidor (subscriber+WS) → frontend
@@ -19,78 +19,331 @@
 #    ./scripts/network-delay.sh       (injeta latência)
 # ═══════════════════════════════════════════════════════════════════════════════
 
+# ═══════════════════════════════════════════════════════════════════════════════
+#  usp-airline — Sistema Distribuído de Rastreamento de Aviões
+# ═══════════════════════════════════════════════════════════════════════════════
+
+name: usp-airline
+
 networks:
-  aerotrack-net:
+  usp-airline-net:
+    name: usp-airline-net
     driver: bridge
 
 volumes:
-  mosquitto-data:
-  postgres-data:
+  mosquitto_data_sul:
+  mosquitto_data_sudeste:
+  mosquitto_data_norte:
+  mosquitto_data_nordeste:
+  mosquitto_data_centro_oeste:
+  
+  cassandra_data_sul:
+  cassandra_data_sudeste:
+  cassandra_data_norte:
+  cassandra_data_nordeste:
+  cassandra_data_centro_oeste:
 
 services:
 
   # ════════════════════════════════════════════════════════════════════
-  #  BROKER — Eclipse Mosquitto MQTT (middleware real)
+  #  GEODNS — Serviço de Descoberta de Região
   # ════════════════════════════════════════════════════════════════════
-  broker:
+  geodns:
+    build: ./geodns
+    container_name: usp-airline-geodns
+    ports:
+      - "8080:8080"
+    networks:
+      - usp-airline-net
+    restart: unless-stopped
+
+  # ════════════════════════════════════════════════════════════════════
+  #  REGIÃO SUL
+  # ════════════════════════════════════════════════════════════════════
+  broker_sul:
     build: ./broker
-    container_name: aerotrack-broker
+    container_name: usp-airline-broker-sul
     ports:
-      - "1883:1883"   # MQTT nativo
-      - "9001:9001"   # MQTT sobre WebSocket
+      - "1881:1883" 
     volumes:
-      - mosquitto-data:/mosquitto/data
+      - mosquitto_data_sul:/mosquitto/data
     networks:
-      - aerotrack-net
+      - usp-airline-net
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "mosquitto_sub", "-h", "localhost", "-p", "1883",
-             "-t", "$$SYS/broker/uptime", "-C", "1", "-W", "3"]
+      test: ["CMD", "mosquitto_sub", "-h", "localhost", "-p", "1883", "-t", "$$SYS/broker/uptime", "-C", "1", "-W", "3"]
       interval: 10s
       timeout: 5s
       retries: 5
-      start_period: 5s
 
-  # ════════════════════════════════════════════════════════════════════
-  #  BANCO DE DADOS — PostgreSQL
-  # ════════════════════════════════════════════════════════════════════
-  banco:
-    image: postgres:16-alpine
-    container_name: aerotrack-banco
+  banco_sul:
+    image: cassandra:latest
+    container_name: usp-airline-cassandra-sul
     environment:
-      POSTGRES_DB:       aerotrack
-      POSTGRES_USER:     aerotrack
-      POSTGRES_PASSWORD: aerotrack
+      CASSANDRA_CLUSTER_NAME: usp-airline
+      CASSANDRA_DC: datacenter1
+      CASSANDRA_SEEDS: banco_sul,banco_sudeste,banco_norte,banco_nordeste,banco_centro_oeste
     volumes:
-      - postgres-data:/var/lib/postgresql/data
-      - ./banco/init.sql:/docker-entrypoint-initdb.d/init.sql
+      - cassandra_data_sul:/var/lib/cassandra
     networks:
-      - aerotrack-net
+      - usp-airline-net
     restart: unless-stopped
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U aerotrack"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
+      test: ["CMD-SHELL", "cqlsh -e \"SELECT release_version FROM system.local\" >/dev/null"]
+      interval: 20s
+      timeout: 10s
+      retries: 10
+      start_period: 40s
 
-  # ════════════════════════════════════════════════════════════════════
-  #  SERVIDOR DE APLICAÇÃO — MQTT Subscriber + WebSocket + REST
-  # ════════════════════════════════════════════════════════════════════
-  servidor:
+  servidor_sul:
     build: ./servidor
-    container_name: aerotrack-servidor
+    container_name: usp-airline-servidor-sul
     ports:
-      - "4000:4000"
+      - "4001:4000"
     environment:
-      BROKER_URL:   mqtt://broker:1883
-      HTTP_PORT:    "4000"
-      DATABASE_URL: postgresql://aerotrack:aerotrack@banco:5432/aerotrack
+      BROKER_URL: mqtt://broker_sul:1883
+      HTTP_PORT: "4000"
+      CASSANDRA_CONTACT_POINTS: banco_sul
+      CASSANDRA_DATACENTER: datacenter1
+      CASSANDRA_KEYSPACE: usp_airlines
     networks:
-      - aerotrack-net
+      - usp-airline-net
     depends_on:
-      broker:
+      broker_sul:
         condition: service_healthy
-      banco:
+      banco_sul:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # ════════════════════════════════════════════════════════════════════
+  #  REGIÃO SUDESTE
+  # ════════════════════════════════════════════════════════════════════
+  broker_sudeste:
+    build: ./broker
+    container_name: usp-airline-broker-sudeste
+    ports:
+      - "1882:1883" 
+    volumes:
+      - mosquitto_data_sudeste:/mosquitto/data
+    networks:
+      - usp-airline-net
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "mosquitto_sub", "-h", "localhost", "-p", "1883", "-t", "$$SYS/broker/uptime", "-C", "1", "-W", "3"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  banco_sudeste:
+    image: cassandra:latest
+    container_name: usp-airline-cassandra-sudeste
+    environment:
+      CASSANDRA_CLUSTER_NAME: usp-airline
+      CASSANDRA_DC: datacenter1
+      CASSANDRA_SEEDS: banco_sul,banco_sudeste,banco_norte,banco_nordeste,banco_centro_oeste
+    volumes:
+      - cassandra_data_sudeste:/var/lib/cassandra
+    networks:
+      - usp-airline-net
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "cqlsh -e \"SELECT release_version FROM system.local\" >/dev/null"]
+      interval: 20s
+      timeout: 10s
+      retries: 10
+      start_period: 40s
+
+  servidor_sudeste:
+    build: ./servidor
+    container_name: usp-airline-servidor-sudeste
+    ports:
+      - "4002:4000"
+    environment:
+      BROKER_URL: mqtt://broker_sudeste:1883
+      HTTP_PORT: "4000"
+      CASSANDRA_CONTACT_POINTS: banco_sudeste
+      CASSANDRA_DATACENTER: datacenter1
+      CASSANDRA_KEYSPACE: usp_airlines
+    networks:
+      - usp-airline-net
+    depends_on:
+      broker_sudeste:
+        condition: service_healthy
+      banco_sudeste:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # ════════════════════════════════════════════════════════════════════
+  #  REGIÃO NORTE
+  # ════════════════════════════════════════════════════════════════════
+  broker_norte:
+    build: ./broker
+    container_name: usp-airline-broker-norte
+    ports:
+      - "1883:1883" 
+    volumes:
+      - mosquitto_data_norte:/mosquitto/data
+    networks:
+      - usp-airline-net
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "mosquitto_sub", "-h", "localhost", "-p", "1883", "-t", "$$SYS/broker/uptime", "-C", "1", "-W", "3"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  banco_norte:
+    image: cassandra:latest
+    container_name: usp-airline-cassandra-norte
+    environment:
+      CASSANDRA_CLUSTER_NAME: usp-airline
+      CASSANDRA_DC: datacenter1
+      CASSANDRA_SEEDS: banco_sul,banco_sudeste,banco_norte,banco_nordeste,banco_centro_oeste
+    volumes:
+      - cassandra_data_norte:/var/lib/cassandra
+    networks:
+      - usp-airline-net
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "cqlsh -e \"SELECT release_version FROM system.local\" >/dev/null"]
+      interval: 20s
+      timeout: 10s
+      retries: 10
+      start_period: 40s
+
+  servidor_norte:
+    build: ./servidor
+    container_name: usp-airline-servidor-norte
+    ports:
+      - "4003:4000"
+    environment:
+      BROKER_URL: mqtt://broker_norte:1883
+      HTTP_PORT: "4000"
+      CASSANDRA_CONTACT_POINTS: banco_norte
+      CASSANDRA_DATACENTER: datacenter1
+      CASSANDRA_KEYSPACE: usp_airlines
+    networks:
+      - usp-airline-net
+    depends_on:
+      broker_norte:
+        condition: service_healthy
+      banco_norte:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # ════════════════════════════════════════════════════════════════════
+  #  REGIÃO NORDESTE
+  # ════════════════════════════════════════════════════════════════════
+  broker_nordeste:
+    build: ./broker
+    container_name: usp-airline-broker-nordeste
+    ports:
+      - "1884:1883" 
+    volumes:
+      - mosquitto_data_nordeste:/mosquitto/data
+    networks:
+      - usp-airline-net
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "mosquitto_sub", "-h", "localhost", "-p", "1883", "-t", "$$SYS/broker/uptime", "-C", "1", "-W", "3"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  banco_nordeste:
+    image: cassandra:latest
+    container_name: usp-airline-cassandra-nordeste
+    environment:
+      CASSANDRA_CLUSTER_NAME: usp-airline
+      CASSANDRA_DC: datacenter1
+      CASSANDRA_SEEDS: banco_sul,banco_sudeste,banco_norte,banco_nordeste,banco_centro_oeste
+    volumes:
+      - cassandra_data_nordeste:/var/lib/cassandra
+    networks:
+      - usp-airline-net
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "cqlsh -e \"SELECT release_version FROM system.local\" >/dev/null"]
+      interval: 20s
+      timeout: 10s
+      retries: 10
+      start_period: 40s
+
+  servidor_nordeste:
+    build: ./servidor
+    container_name: usp-airline-servidor-nordeste
+    ports:
+      - "4004:4000"
+    environment:
+      BROKER_URL: mqtt://broker_nordeste:1883
+      HTTP_PORT: "4000"
+      CASSANDRA_CONTACT_POINTS: banco_nordeste
+      CASSANDRA_DATACENTER: datacenter1
+      CASSANDRA_KEYSPACE: usp_airlines
+    networks:
+      - usp-airline-net
+    depends_on:
+      broker_nordeste:
+        condition: service_healthy
+      banco_nordeste:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # ════════════════════════════════════════════════════════════════════
+  #  REGIÃO CENTRO-OESTE
+  # ════════════════════════════════════════════════════════════════════
+  broker_centro_oeste:
+    build: ./broker
+    container_name: usp-airline-broker-centro-oeste
+    ports:
+      - "1885:1883" 
+    volumes:
+      - mosquitto_data_centro_oeste:/mosquitto/data
+    networks:
+      - usp-airline-net
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "mosquitto_sub", "-h", "localhost", "-p", "1883", "-t", "$$SYS/broker/uptime", "-C", "1", "-W", "3"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  banco_centro_oeste:
+    image: cassandra:latest
+    container_name: usp-airline-cassandra-centro-oeste
+    environment:
+      CASSANDRA_CLUSTER_NAME: usp-airline
+      CASSANDRA_DC: datacenter1
+      CASSANDRA_SEEDS: banco_sul,banco_sudeste,banco_norte,banco_nordeste,banco_centro_oeste
+    volumes:
+      - cassandra_data_centro_oeste:/var/lib/cassandra
+    networks:
+      - usp-airline-net
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "cqlsh -e \"SELECT release_version FROM system.local\" >/dev/null"]
+      interval: 20s
+      timeout: 10s
+      retries: 10
+      start_period: 40s
+
+  servidor_centro_oeste:
+    build: ./servidor
+    container_name: usp-airline-servidor-centro-oeste
+    ports:
+      - "4005:4000"
+    environment:
+      BROKER_URL: mqtt://broker_centro_oeste:1883
+      HTTP_PORT: "4000"
+      CASSANDRA_CONTACT_POINTS: banco_centro_oeste
+      CASSANDRA_DATACENTER: datacenter1
+      CASSANDRA_KEYSPACE: usp_airlines
+    networks:
+      - usp-airline-net
+    depends_on:
+      broker_centro_oeste:
+        condition: service_healthy
+      banco_centro_oeste:
         condition: service_healthy
     restart: unless-stopped
 
@@ -99,13 +352,17 @@ services:
   # ════════════════════════════════════════════════════════════════════
   frontend:
     build: ./frontend
-    container_name: aerotrack-frontend
+    container_name: usp-airline-frontend
     ports:
       - "3000:80"
     networks:
-      - aerotrack-net
+      - usp-airline-net
     depends_on:
-      - servidor
+      - servidor_sul
+      - servidor_sudeste
+      - servidor_norte
+      - servidor_nordeste
+      - servidor_centro_oeste
     restart: unless-stopped
 
   # ════════════════════════════════════════════════════════════════════
@@ -115,206 +372,194 @@ services:
   # ── LATAM ──────────────────────────────────────────────────────────
   aviao-la3105:
     build: ./aviao
-    container_name: aviao-LA3105
+    container_name: usp-airline-aviao-LA3105
     environment:
-      BROKER_URL:   mqtt://broker:1883
-      CALLSIGN:     LA3105
-      AIRLINE:      LATAM
+      GEODNS_URL: http://geodns:8080
+      CALLSIGN: LA3105
+      AIRLINE: LATAM
       IATA_AIRLINE: LA
-      ORIGIN:       GRU
-      DESTINATION:  GIG
-      UPDATE_MS:    "1000"
-    networks: [aerotrack-net]
+      ORIGIN: GRU
+      DESTINATION: GIG
+      UPDATE_MS: "1000"
+    networks: [usp-airline-net]
     depends_on:
-      broker:
-        condition: service_healthy
+      - geodns
     restart: on-failure:5
 
   aviao-la3240:
     build: ./aviao
-    container_name: aviao-LA3240
+    container_name: usp-airline-aviao-LA3240
     environment:
-      BROKER_URL:   mqtt://broker:1883
-      CALLSIGN:     LA3240
-      AIRLINE:      LATAM
+      GEODNS_URL: http://geodns:8080
+      CALLSIGN: LA3240
+      AIRLINE: LATAM
       IATA_AIRLINE: LA
-      ORIGIN:       GIG
-      DESTINATION:  BSB
-      UPDATE_MS:    "1000"
-    networks: [aerotrack-net]
+      ORIGIN: GIG
+      DESTINATION: BSB
+      UPDATE_MS: "1000"
+    networks: [usp-airline-net]
     depends_on:
-      broker:
-        condition: service_healthy
+      - geodns
     restart: on-failure:5
 
   aviao-la4570:
     build: ./aviao
-    container_name: aviao-LA4570
+    container_name: usp-airline-aviao-LA4570
     environment:
-      BROKER_URL:   mqtt://broker:1883
-      CALLSIGN:     LA4570
-      AIRLINE:      LATAM
+      GEODNS_URL: http://geodns:8080
+      CALLSIGN: LA4570
+      AIRLINE: LATAM
       IATA_AIRLINE: LA
-      ORIGIN:       BSB
-      DESTINATION:  FOR
-      UPDATE_MS:    "1000"
-    networks: [aerotrack-net]
+      ORIGIN: BSB
+      DESTINATION: FOR
+      UPDATE_MS: "1000"
+    networks: [usp-airline-net]
     depends_on:
-      broker:
-        condition: service_healthy
+      - geodns
     restart: on-failure:5
 
   aviao-la9901:
     build: ./aviao
-    container_name: aviao-LA9901
+    container_name: usp-airline-aviao-LA9901
     environment:
-      BROKER_URL:   mqtt://broker:1883
-      CALLSIGN:     LA9901
-      AIRLINE:      LATAM
+      GEODNS_URL: http://geodns:8080
+      CALLSIGN: LA9901
+      AIRLINE: LATAM
       IATA_AIRLINE: LA
-      ORIGIN:       GRU
-      DESTINATION:  MAO
-      UPDATE_MS:    "1200"
-    networks: [aerotrack-net]
+      ORIGIN: GRU
+      DESTINATION: MAO
+      UPDATE_MS: "1200"
+    networks: [usp-airline-net]
     depends_on:
-      broker:
-        condition: service_healthy
+      - geodns
     restart: on-failure:5
 
   # ── GOL ────────────────────────────────────────────────────────────
   aviao-g31820:
     build: ./aviao
-    container_name: aviao-G31820
+    container_name: usp-airline-aviao-G31820
     environment:
-      BROKER_URL:   mqtt://broker:1883
-      CALLSIGN:     G31820
-      AIRLINE:      GOL
+      GEODNS_URL: http://geodns:8080
+      CALLSIGN: G31820
+      AIRLINE: GOL
       IATA_AIRLINE: G3
-      ORIGIN:       GRU
-      DESTINATION:  SSA
-      UPDATE_MS:    "1000"
-    networks: [aerotrack-net]
+      ORIGIN: GRU
+      DESTINATION: SSA
+      UPDATE_MS: "1000"
+    networks: [usp-airline-net]
     depends_on:
-      broker:
-        condition: service_healthy
+      - geodns
     restart: on-failure:5
 
   aviao-g32001:
     build: ./aviao
-    container_name: aviao-G32001
+    container_name: usp-airline-aviao-G32001
     environment:
-      BROKER_URL:   mqtt://broker:1883
-      CALLSIGN:     G32001
-      AIRLINE:      GOL
+      GEODNS_URL: http://geodns:8080
+      CALLSIGN: G32001
+      AIRLINE: GOL
       IATA_AIRLINE: G3
-      ORIGIN:       CWB
-      DESTINATION:  GRU
-      UPDATE_MS:    "1000"
-    networks: [aerotrack-net]
+      ORIGIN: CWB
+      DESTINATION: GRU
+      UPDATE_MS: "1000"
+    networks: [usp-airline-net]
     depends_on:
-      broker:
-        condition: service_healthy
+      - geodns
     restart: on-failure:5
 
   aviao-g31543:
     build: ./aviao
-    container_name: aviao-G31543
+    container_name: usp-airline-aviao-G31543
     environment:
-      BROKER_URL:   mqtt://broker:1883
-      CALLSIGN:     G31543
-      AIRLINE:      GOL
+      GEODNS_URL: http://geodns:8080
+      CALLSIGN: G31543
+      AIRLINE: GOL
       IATA_AIRLINE: G3
-      ORIGIN:       POA
-      DESTINATION:  FOR
-      UPDATE_MS:    "1000"
-    networks: [aerotrack-net]
+      ORIGIN: POA
+      DESTINATION: FOR
+      UPDATE_MS: "1000"
+    networks: [usp-airline-net]
     depends_on:
-      broker:
-        condition: service_healthy
+      - geodns
     restart: on-failure:5
 
   aviao-g31100:
     build: ./aviao
-    container_name: aviao-G31100
+    container_name: usp-airline-aviao-G31100
     environment:
-      BROKER_URL:   mqtt://broker:1883
-      CALLSIGN:     G31100
-      AIRLINE:      GOL
+      GEODNS_URL: http://geodns:8080
+      CALLSIGN: G31100
+      AIRLINE: GOL
       IATA_AIRLINE: G3
-      ORIGIN:       SSA
-      DESTINATION:  REC
-      UPDATE_MS:    "800"
-    networks: [aerotrack-net]
+      ORIGIN: SSA
+      DESTINATION: REC
+      UPDATE_MS: "800"
+    networks: [usp-airline-net]
     depends_on:
-      broker:
-        condition: service_healthy
+      - geodns
     restart: on-failure:5
 
   # ── AZUL ───────────────────────────────────────────────────────────
   aviao-ad4490:
     build: ./aviao
-    container_name: aviao-AD4490
+    container_name: usp-airline-aviao-AD4490
     environment:
-      BROKER_URL:   mqtt://broker:1883
-      CALLSIGN:     AD4490
-      AIRLINE:      AZUL
+      GEODNS_URL: http://geodns:8080
+      CALLSIGN: AD4490
+      AIRLINE: AZUL
       IATA_AIRLINE: AD
-      ORIGIN:       VCP
-      DESTINATION:  REC
-      UPDATE_MS:    "1000"
-    networks: [aerotrack-net]
+      ORIGIN: VCP
+      DESTINATION: REC
+      UPDATE_MS: "1000"
+    networks: [usp-airline-net]
     depends_on:
-      broker:
-        condition: service_healthy
+      - geodns
     restart: on-failure:5
 
   aviao-ad4512:
     build: ./aviao
-    container_name: aviao-AD4512
+    container_name: usp-airline-aviao-AD4512
     environment:
-      BROKER_URL:   mqtt://broker:1883
-      CALLSIGN:     AD4512
-      AIRLINE:      AZUL
+      GEODNS_URL: http://geodns:8080
+      CALLSIGN: AD4512
+      AIRLINE: AZUL
       IATA_AIRLINE: AD
-      ORIGIN:       MAO
-      DESTINATION:  GRU
-      UPDATE_MS:    "1000"
-    networks: [aerotrack-net]
+      ORIGIN: MAO
+      DESTINATION: GRU
+      UPDATE_MS: "1000"
+    networks: [usp-airline-net]
     depends_on:
-      broker:
-        condition: service_healthy
+      - geodns
     restart: on-failure:5
 
   aviao-ad5633:
     build: ./aviao
-    container_name: aviao-AD5633
+    container_name: usp-airline-aviao-AD5633
     environment:
-      BROKER_URL:   mqtt://broker:1883
-      CALLSIGN:     AD5633
-      AIRLINE:      AZUL
+      GEODNS_URL: http://geodns:8080
+      CALLSIGN: AD5633
+      AIRLINE: AZUL
       IATA_AIRLINE: AD
-      ORIGIN:       BEL
-      DESTINATION:  BSB
-      UPDATE_MS:    "1000"
-    networks: [aerotrack-net]
+      ORIGIN: BEL
+      DESTINATION: BSB
+      UPDATE_MS: "1000"
+    networks: [usp-airline-net]
     depends_on:
-      broker:
-        condition: service_healthy
+      - geodns
     restart: on-failure:5
 
   aviao-ad7710:
     build: ./aviao
-    container_name: aviao-AD7710
+    container_name: usp-airline-aviao-AD7710
     environment:
-      BROKER_URL:   mqtt://broker:1883
-      CALLSIGN:     AD7710
-      AIRLINE:      AZUL
+      GEODNS_URL: http://geodns:8080
+      CALLSIGN: AD7710
+      AIRLINE: AZUL
       IATA_AIRLINE: AD
-      ORIGIN:       FOR
-      DESTINATION:  GIG
-      UPDATE_MS:    "1000"
-    networks: [aerotrack-net]
+      ORIGIN: FOR
+      DESTINATION: GIG
+      UPDATE_MS: "1000"
+    networks: [usp-airline-net]
     depends_on:
-      broker:
-        condition: service_healthy
+      - geodns
     restart: on-failure:5

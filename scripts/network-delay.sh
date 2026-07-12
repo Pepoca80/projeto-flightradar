@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ─────────────────────────────────────────────────────────────────────────────
-#  AeroTrack BR — Injeção de Latência de Rede
+#  usp-airline — Injeção de Latência de Rede
 #
 #  Simula conexões de rádio intermitentes entre aviões e broker.
 #  Usa tc (traffic control) do Linux para adicionar delay e packet loss.
@@ -17,11 +17,11 @@ JITTER=${3:-100ms}
 LOSS=${4:-10}
 
 echo "════════════════════════════════════════════════════════"
-echo " AeroTrack BR — Injeção de Latência de Rede"
+echo " usp-airline — Injeção de Latência de Rede"
 echo " Ação: $ACTION | Delay: $DELAY±$JITTER | Perda: ${LOSS}%"
 echo "════════════════════════════════════════════════════════"
 
-AVIOES=$(docker ps --filter name=aviao- --format "{{.Names}}" | sort)
+AVIOES=$(docker ps --filter name=usp-airline-aviao- --format "{{.Names}}" | sort)
 
 case "$ACTION" in
   inject)
@@ -41,7 +41,7 @@ case "$ACTION" in
     echo "Observar efeitos:"
     echo "  · Mapa deve congelar brevemente e retomar"
     echo "  · Mensagens com timestamp defasado no log"
-    echo "  · Reconexões visíveis nos logs: docker logs -f aviao-LA3105"
+    echo "  · Reconexões visíveis nos logs: docker logs -f usp-airline-aviao-LA3105"
     ;;
 
   remove)

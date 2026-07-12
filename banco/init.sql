@@ -1,32 +1,32 @@
--- Banco de Dados
+-- Esquema Cassandra usado pelo servidor.
 
-CREATE TABLE IF NOT EXISTS telemetria (
-    id          BIGSERIAL PRIMARY KEY,
-    callsign    VARCHAR(16)      NOT NULL,
-    airline     VARCHAR(64),
-    origin      VARCHAR(4),
-    destination VARCHAR(4),
-    lat         DOUBLE PRECISION NOT NULL,
-    lng         DOUBLE PRECISION NOT NULL,
-    altitude    INTEGER,
-    speed       INTEGER,
-    heading     INTEGER,
-    phase       VARCHAR(16),
-    progress    DOUBLE PRECISION,
-    ts          BIGINT,
-    created_at  TIMESTAMPTZ      DEFAULT NOW()
-);
+CREATE KEYSPACE IF NOT EXISTS usp_airlines
+WITH replication = {'class': 'SimpleStrategy', 'replication_factor': 1};
 
-CREATE TABLE IF NOT EXISTS eventos (
-    id         BIGSERIAL PRIMARY KEY,
-    callsign   VARCHAR(16) NOT NULL,
-    evento     VARCHAR(32) NOT NULL,
-    payload    JSONB,
-    created_at TIMESTAMPTZ DEFAULT NOW()
-);
+CREATE TABLE IF NOT EXISTS usp_airlines.telemetria_by_callsign (
+    callsign    text,
+    ts          bigint,
+    id          timeuuid,
+    airline     text,
+    origin      text,
+    destination text,
+    lat         double,
+    lng         double,
+    altitude    int,
+    speed       int,
+    heading     int,
+    phase       text,
+    progress    double,
+    created_at  timestamp,
+    PRIMARY KEY ((callsign), ts, id)
+) WITH CLUSTERING ORDER BY (ts DESC, id DESC);
 
-CREATE INDEX IF NOT EXISTS idx_tel_callsign   ON telemetria(callsign);
-CREATE INDEX IF NOT EXISTS idx_tel_ts         ON telemetria(ts DESC);
-CREATE INDEX IF NOT EXISTS idx_tel_cs_ts      ON telemetria(callsign, ts DESC);
-CREATE INDEX IF NOT EXISTS idx_evt_callsign   ON eventos(callsign);
-CREATE INDEX IF NOT EXISTS idx_evt_tipo       ON eventos(evento);
+CREATE TABLE IF NOT EXISTS usp_airlines.eventos_latest (
+    bucket      text,
+    created_at  timestamp,
+    id          timeuuid,
+    callsign    text,
+    evento      text,
+    payload     text,
+    PRIMARY KEY ((bucket), created_at, id)
+) WITH CLUSTERING ORDER BY (created_at DESC, id DESC);

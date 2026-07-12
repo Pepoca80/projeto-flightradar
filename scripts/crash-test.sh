@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
 # ─────────────────────────────────────────────────────────────────────────────
-#  AeroTrack BR — Teste de Tolerância a Falhas (Crash Failures)
+#  usp-airline — Teste de Tolerância a Falhas (Crash Failures)
 #
 #  Derruba containers de aviões aleatoriamente e verifica que o sistema
 #  continua funcionando (broker, servidor e frontend não caem).
 # ─────────────────────────────────────────────────────────────────────────────
 
 echo "════════════════════════════════════════════════════════"
-echo " AeroTrack BR — Teste de Crash Failures"
+echo " usp-airline — Teste de Crash Failures"
 echo "════════════════════════════════════════════════════════"
 
 check_server() {
@@ -31,7 +31,7 @@ echo "    Voos ativos antes: $VOOS_ANTES"
 # 2. Listar containers de aviões
 echo ""
 echo "[2] Containers de aviões em execução:"
-AVIOES=$(docker ps --filter name=aviao- --format "{{.Names}}" | sort)
+AVIOES=$(docker ps --filter name=usp-airline-aviao- --format "{{.Names}}" | sort)
 if [ -z "$AVIOES" ]; then
   echo "    Nenhum avião em execução."
   exit 0

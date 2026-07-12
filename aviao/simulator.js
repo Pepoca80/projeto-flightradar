@@ -1,6 +1,6 @@
 'use strict';
 /**
- * AeroTrack BR — Simulador de Avião (MQTT Publisher)
+ * usp-airline — Simulador de Avião (MQTT Publisher)
  *
  * Cada instância deste processo representa um avião independente.
  * Configuração via variáveis de ambiente.
