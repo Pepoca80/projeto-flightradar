@@ -1,5 +1,5 @@
 # ═══════════════════════════════════════════════════════════════════════════════
-#  usp-airline — Sistema Distribuído de Rastreamento de Aviões
+#  Usp-airline — Sistema Distribuído de Rastreamento de Aviões
 #
 #  Arquitetura:
 #    aviões (publishers) → Mosquitto MQTT (broker) → servidor (subscriber+WS) → frontend

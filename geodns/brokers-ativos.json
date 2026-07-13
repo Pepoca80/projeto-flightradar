@@ -1,0 +1,9 @@
+{
+  "brokers": {
+    "broker_sul": true,
+    "broker_sudeste": false,
+    "broker_norte": false,
+    "broker_nordeste": false,
+    "broker_centro_oeste": false
+  }
+}
