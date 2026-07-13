@@ -132,7 +132,7 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:var(--m
 
 /* Customização do Menu de Camadas (Topo Direito) */
 .leaflet-control-layers {
-  background: rgba(17, 24, 39, 0.9) !important; /* var(--surface) com opacidade */
+  background: rgba(17, 24, 39, 0.9) !important;
   border: 1px solid var(--border) !important;
   border-radius: 4px !important;
   color: var(--text) !important;
@@ -141,7 +141,6 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:var(--m
   box-shadow: none !important;
 }
 
-/* Ícone do botão (SVG em Ciano) */
 .leaflet-control-layers-toggle {
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%2300d4ff' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolygon points='1 6 1 22 8 18 16 22 23 18 23 2 16 6 8 2 1 6'%3E%3C/polygon%3E%3Cline x1='8' y1='2' x2='8' y2='18'%3E%3C/line%3E%3Cline x1='16' y1='6' x2='16' y2='22'%3E%3C/line%3E%3C/svg%3E") !important;
   background-size: 18px !important;
@@ -278,22 +277,18 @@ let srvMetrics={};
 let ws=null;
 
 // ─── Mapa Leaflet ─────────────────────────────────────────────────────────────
-// 1. Definir os provedores de mapa
 const mapaEscuro = L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_nolabels/{z}/{x}/{y}{r}.png',{maxZoom:18});
 const mapaSatelite = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {maxZoom: 19});
 const mapaTopografico = L.tileLayer('https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png', {maxZoom: 17});
 
-// 2. Criar o mapa iniciando com a camada escura
 const map = L.map('map',{
     zoomControl:false,
     attributionControl:false,
-    layers: [mapaEscuro] // Define o mapa escuro como o padrão ao carregar
+    layers: [mapaEscuro]
 }).setView([-14,-51],4);
 
-// 3. Adicionar o controle de zoom
 L.control.zoom({position:'bottomright'}).addTo(map);
 
-// 4. Criar a lista de opções e adicionar o botão de menu no mapa
 const mapasBase = {
     "Modo Noturno (Padrão)": mapaEscuro,
     "Satélite": mapaSatelite,
@@ -352,14 +347,16 @@ function planeIcon(f){
 
 function updateMarker(f){
   const cs=f.callsign;
+  
   if(markers[cs]){
-    markers[cs].setLatLng([f.lat,f.lng]).setIcon(planeIcon(f));
+    // Atualiza apenas o visual, a posicao fica a cargo da animacao de extrapolação
+    markers[cs].setIcon(planeIcon(f));
   } else {
     const m=L.marker([f.lat,f.lng],{icon:planeIcon(f)}).addTo(map);
     m.on('click',()=>selectFlight(cs));
     markers[cs]=m;
   }
-  // Tooltip atualizado
+  
   markers[cs].bindTooltip(
     `<div style="font-family:JetBrains Mono,monospace;font-size:11px;background:#111827;border:1px solid #1e2d4a;color:#c8d8f0;padding:6px 10px;border-radius:3px;min-width:140px">
       <div style="color:${PHASE_COLOR[f.phase]||'#00d4ff'};font-weight:700">${f.callsign} · ${f.airline||''}</div>
@@ -370,7 +367,8 @@ function updateMarker(f){
     </div>`,
     {offset:[12,0],direction:'right',opacity:1}
   );
-  // Trail
+  
+  // Trail original sem extrapolação para precisão de dados
   if(!trails[cs]) trails[cs]={pts:[],line:null};
   trails[cs].pts.push([f.lat,f.lng]);
   if(trails[cs].pts.length>12) trails[cs].pts.shift();
@@ -385,6 +383,51 @@ function updateMarker(f){
 function removeFromMap(cs){
   if(markers[cs]){map.removeLayer(markers[cs]);delete markers[cs];}
   if(trails[cs]){if(trails[cs].line)map.removeLayer(trails[cs].line);delete trails[cs];}
+}
+
+// ─── Extrapolação Espacial ───────────────────────────────────────────────────
+function animarPrevisaoRotas() {
+  const agora = Date.now();
+
+  for (const callsign in flights) {
+    const voo = flights[callsign];
+    
+    const tempoDecorridoSegundos = (agora - voo.ts) / 1000;
+    
+    // Trava o marcador caso a aeronave esteja parada
+    if (voo.phase === 'landed' || voo.phase === 'ground' || !voo.speed) {
+      if (markers[callsign]) {
+        markers[callsign].setLatLng([voo.lat, voo.lng]);
+      }
+      continue;
+    }
+    
+    const distanciaKm = (voo.speed / 3600) * tempoDecorridoSegundos;
+    const raioTerraKm = 6371.0;
+    
+    const latRad = voo.lat * (Math.PI / 180);
+    const lonRad = voo.lng * (Math.PI / 180);
+    const direcaoRad = voo.heading * (Math.PI / 180);
+    
+    const novaLatRad = Math.asin(
+      Math.sin(latRad) * Math.cos(distanciaKm / raioTerraKm) +
+      Math.cos(latRad) * Math.sin(distanciaKm / raioTerraKm) * Math.cos(direcaoRad)
+    );
+    
+    const novaLonRad = lonRad + Math.atan2(
+      Math.sin(direcaoRad) * Math.sin(distanciaKm / raioTerraKm) * Math.cos(latRad),
+      Math.cos(distanciaKm / raioTerraKm) - Math.sin(latRad) * Math.sin(novaLatRad)
+    );
+    
+    const latExtrapolada = novaLatRad * (180 / Math.PI);
+    const lonExtrapolada = novaLonRad * (180 / Math.PI);
+    
+    if (markers[callsign]) {
+      markers[callsign].setLatLng([latExtrapolada, lonExtrapolada]);
+    }
+  }
+  
+  requestAnimationFrame(animarPrevisaoRotas);
 }
 
 // ─── WebSocket connection ──────────────────────────────────────────────────────
@@ -404,7 +447,6 @@ function connect(){
       document.getElementById('s-msgs').textContent=totalMsgs.toLocaleString();
 
       if(msg.type==='SNAPSHOT'){
-        // Estado inicial: preencher todos os voos
         Object.values(msg.flights||{}).forEach(f=>{
           flights[f.callsign]=f;
           updateMarker(f);
@@ -587,16 +629,16 @@ function renderArquitetura(){
       <div style="font-family:var(--display);font-size:13px;font-weight:800;color:var(--accent);margin-bottom:10px">ARQUITETURA DO SISTEMA</div>
 
       <div style="color:var(--accent);margin-bottom:3px">① PUBLISHERS (Docker)</div>
-      <div style="color:var(--muted);margin-bottom:8px">Um container por avião. Publica telemetria com QoS 0 (fire-and-forget) e eventos com QoS 1 (entrega garantida). Reconecta com backoff em falhas. Last Will Testament notifica o broker se cair abruptamente.</div>
+      <div style="color:var(--muted);margin-bottom:8px">Um container por avião. Publica telemetria com QoS 0 e eventos com QoS 1. Reconecta com backoff em falhas.</div>
 
       <div style="color:var(--amber);margin-bottom:3px">② MOSQUITTO MQTT (Docker)</div>
-      <div style="color:var(--muted);margin-bottom:8px">Middleware real. Roteamento por tópico hierárquico com wildcards. Porta 1883 (MQTT) e 9001 (WebSocket). Retained messages para novos subscribers. Detecta desconexões via keepalive.</div>
+      <div style="color:var(--muted);margin-bottom:8px">Middleware real. Roteamento por tópico hierárquico com wildcards. Porta 1883 e 9001.</div>
 
       <div style="color:var(--purple);margin-bottom:3px">③ SERVIDOR DE APLICAÇÃO (Docker)</div>
-      <div style="color:var(--muted);margin-bottom:8px">Subscriber MQTT + WebSocket server + REST API. Estado mínimo em memória (reconstituível). Fan-out para N clientes simultâneos. Persiste no Cassandra a cada 10 ticks.</div>
+      <div style="color:var(--muted);margin-bottom:8px">Subscriber MQTT + WebSocket server + REST API. Estado mínimo em memória. Persiste no Cassandra.</div>
 
       <div style="color:var(--green);margin-bottom:3px">④ FRONTEND (Docker/Nginx)</div>
-      <div style="color:var(--muted)">Subscriber via WebSocket. Recebe snapshot inicial e atualizações incrementais. Leaflet renderiza posições em tempo real.</div>
+      <div style="color:var(--muted)">Subscriber via WebSocket. Recebe snapshot inicial e atualizações. Leaflet renderiza posições em tempo real fluidamente.</div>
 
       <div style="margin-top:10px;padding-top:8px;border-top:1px solid var(--border);color:var(--muted);font-size:9px">
         <div>Tópicos MQTT:</div>
@@ -651,6 +693,8 @@ setInterval(()=>{
 
 setInterval(()=>{ if(currentTab==='voos') renderList(); }, 2000);
 
+// Inicia os processos centrais da tela
+requestAnimationFrame(animarPrevisaoRotas);
 connect();
 </script>
 </body>

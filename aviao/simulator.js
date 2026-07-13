@@ -1,6 +1,6 @@
 'use strict';
 /**
- * usp-airline — Simulador de Avião (MQTT Publisher)
+ * Usp-airline — Simulador de Avião (MQTT Publisher)
  *
  * Cada instância deste processo representa um avião independente.
  * Configuração via variáveis de ambiente.
@@ -17,7 +17,7 @@ const mqtt = require('mqtt');
 
 // ─── Configuração via ambiente ────────────────────────────────────────────────
 const CFG = {
-  brokerUrl:   process.env.BROKER_URL   || 'mqtt://broker:1883',
+  geoDnsUrl:   process.env.GEODNS_URL   || 'http://geodns:8080',
   callsign:    process.env.CALLSIGN     || 'XX0000',
   airline:     process.env.AIRLINE      || 'TEST',
   iataAirline: process.env.IATA_AIRLINE || 'XT',
@@ -53,20 +53,16 @@ const AIRPORTS = {
 const orig = AIRPORTS[CFG.origin]      || AIRPORTS.GRU;
 const dest = AIRPORTS[CFG.destination] || AIRPORTS.GIG;
 
-// Heading inicial (graus)
 const dLng = dest.lng - orig.lng;
 const dLat = dest.lat - orig.lat;
 const heading = ((Math.atan2(dLng, dLat) * 180 / Math.PI) + 360) % 360;
 
-// Distância aproximada em km
 const distKm = Math.sqrt(dLat * dLat + dLng * dLng) * 111;
 
-// Parâmetros de voo simulados
-const CRUISE_ALT   = Math.round(28000 + Math.random() * 13000); // ft
-const CRUISE_SPEED = Math.round(750   + Math.random() * 130);   // km/h
+const CRUISE_ALT   = Math.round(28000 + Math.random() * 13000);
+const CRUISE_SPEED = Math.round(750   + Math.random() * 130);
 const SQUAWK       = Math.floor(1000  + Math.random() * 6777).toString();
 
-// Fração de progresso avançada por tick
 const PROGRESS_STEP = (CFG.updateMs / 1000) / (distKm / CRUISE_SPEED * 3600);
 
 const state = {
@@ -77,7 +73,7 @@ const state = {
   heading:      Math.round(heading),
   verticalSpeed: 0,
   progress:     0.01,
-  phase:        'climbing',   // ground | climbing | cruise | descending | landed
+  phase:        'climbing',
   squawk:       SQUAWK,
 };
 
@@ -88,14 +84,13 @@ function clamp(v, min, max) { return Math.max(min, Math.min(max, v)); }
 function updatePhysics() {
   state.progress = Math.min(1, state.progress + PROGRESS_STEP * rand(0.85, 1.15));
 
-  // Determinar fase de voo
   if      (state.progress < 0.01)  state.phase = 'ground';
   else if (state.progress < 0.12)  state.phase = 'climbing';
   else if (state.progress < 0.82)  state.phase = 'cruise';
   else if (state.progress < 0.99)  state.phase = 'descending';
   else                             state.phase = 'landed';
 
-  const dt = CFG.updateMs / 60000; // fração de minuto
+  const dt = CFG.updateMs / 60000;
 
   switch (state.phase) {
     case 'ground':
@@ -138,84 +133,111 @@ const TOPICS = {
   status:     `$SYS/aviao/${CFG.callsign}/status`,
 };
 
-// ─── Conexão MQTT com reconexão automática ────────────────────────────────────
+// ─── Conexão MQTT dinâmica via GeoDNS ─────────────────────────────────────────
 let tickInterval = null;
+let client = null;
 
-const client = mqtt.connect(CFG.brokerUrl, {
-  clientId:      CFG.clientId,
-  clean:         true,
-  reconnectPeriod: 2000,      // tenta reconectar a cada 2s
-  connectTimeout: 10000,
-  will: {
-    // Last Will Testament: broker publica automaticamente se o avião desconectar
-    topic:   TOPICS.evento,
-    payload: JSON.stringify({
-      evento:    'desconectou',
-      callsign:  CFG.callsign,
-      airline:   CFG.airline,
-      origin:    CFG.origin,
-      destination: CFG.destination,
-      ts:        Date.now(),
-    }),
-    qos: 1,
-    retain: false,
-  },
-});
+async function obterRotaGeoDns() {
+  try {
+    const resposta = await fetch(`${CFG.geoDnsUrl}/resolver?lat=${state.lat}&lon=${state.lng}`);
+    const dados = await resposta.json();
+    return dados.brokerUrl;
+  } catch (erro) {
+    console.error(`[${CFG.callsign}] Erro ao consultar a API do GeoDNS:`, erro);
+    return null;
+  }
+}
+
+async function iniciarConexaoMqtt() {
+  if (client) {
+    client.end();
+  }
+
+  const brokerUrl = await obterRotaGeoDns();
+
+  if (!brokerUrl) {
+    console.log(`[${CFG.callsign}] Falha ao obter rota. Tentando novamente em 5 segundos`);
+    setTimeout(iniciarConexaoMqtt, 5000);
+    return;
+  }
+
+  console.log(`[${CFG.callsign}] Rota encontrada. Iniciando conexao MQTT via GeoDNS: ${brokerUrl}`);
+
+  client = mqtt.connect(brokerUrl, {
+    clientId:      CFG.clientId,
+    clean:         true,
+    reconnectPeriod: 0,
+    connectTimeout: 10000,
+    will: {
+      topic:   TOPICS.evento,
+      payload: JSON.stringify({
+        evento:      'desconectou',
+        callsign:    CFG.callsign,
+        airline:     CFG.airline,
+        origin:      CFG.origin,
+        destination: CFG.destination,
+        ts:          Date.now(),
+      }),
+      qos: 1,
+      retain: false,
+    },
+  });
+
+  client.on('connect', () => {
+    console.log(`[${CFG.callsign}] ✓ Conectado ao broker | Rota: ${CFG.origin} para ${CFG.destination} | ${Math.round(distKm)}km`);
+
+    client.subscribe(TOPICS.controle, { qos: 1 });
+
+    publish(TOPICS.evento, {
+      evento:       'decolou',
+      callsign:     CFG.callsign,
+      airline:      CFG.airline,
+      iataAirline:  CFG.iataAirline,
+      origin:       CFG.origin,
+      destination:  CFG.destination,
+      originCity:   orig.city,
+      destCity:     dest.city,
+      distKm:       Math.round(distKm),
+      cruiseAlt:    CRUISE_ALT,
+      squawk:       SQUAWK,
+      ts:           Date.now(),
+    }, 1);
+
+    publishTelemetria(true);
+
+    if (tickInterval) clearInterval(tickInterval);
+    tickInterval = setInterval(tick, CFG.updateMs);
+  });
+
+  client.on('message', (topic, message) => {
+    if (topic === TOPICS.controle) {
+      try {
+        const cmd = JSON.parse(message.toString());
+        console.log(`[${CFG.callsign}] Comando recebido:`, cmd);
+      } catch {}
+    }
+  });
+
+  client.on('offline', () => {
+    console.warn(`[${CFG.callsign}] Broker offline. Solicitando rota alternativa ao GeoDNS em 3 segundos`);
+    if (tickInterval) {
+      clearInterval(tickInterval);
+      tickInterval = null;
+    }
+    setTimeout(iniciarConexaoMqtt, 3000);
+  });
+
+  client.on('error', (err) => {
+    console.error(`[${CFG.callsign}] Erro MQTT: ${err.message}`);
+  });
+}
 
 function publish(topic, payload, qos = 0, retain = false) {
-  if (!client.connected) return;
+  if (!client || !client.connected) return;
   client.publish(topic, JSON.stringify(payload), { qos, retain }, (err) => {
     if (err) console.error(`[${CFG.callsign}] Erro ao publicar em ${topic}:`, err.message);
   });
 }
-
-client.on('connect', () => {
-  console.log(`[${CFG.callsign}] ✓ Conectado ao broker | Rota: ${CFG.origin}→${CFG.destination} | ${Math.round(distKm)}km`);
-
-  // Subscrever canal de controle (comandos remotos)
-  client.subscribe(TOPICS.controle, { qos: 1 });
-
-  // Publicar evento de decolagem (QoS 1 — garantir entrega)
-  publish(TOPICS.evento, {
-    evento:       'decolou',
-    callsign:     CFG.callsign,
-    airline:      CFG.airline,
-    iataAirline:  CFG.iataAirline,
-    origin:       CFG.origin,
-    destination:  CFG.destination,
-    originCity:   orig.city,
-    destCity:     dest.city,
-    distKm:       Math.round(distKm),
-    cruiseAlt:    CRUISE_ALT,
-    squawk:       SQUAWK,
-    ts:           Date.now(),
-  }, 1);
-
-  // Publicar posição inicial como retained (novos subscribers recebem imediatamente)
-  publishTelemetria(true);
-
-  // Loop de telemetria
-  if (tickInterval) clearInterval(tickInterval);
-  tickInterval = setInterval(tick, CFG.updateMs);
-});
-
-client.on('message', (topic, message) => {
-  if (topic === TOPICS.controle) {
-    try {
-      const cmd = JSON.parse(message.toString());
-      console.log(`[${CFG.callsign}] Comando recebido:`, cmd);
-      // Aqui poderiam ser tratados: altitude_change, speed_change, emergency, etc.
-    } catch {}
-  }
-});
-
-client.on('reconnect', () => {
-  console.log(`[${CFG.callsign}] Reconectando ao broker...`);
-});
-
-client.on('error', (err) => {
-  console.error(`[${CFG.callsign}] Erro MQTT: ${err.message}`);
-});
 
 function publishTelemetria(retain = false) {
   const payload = {
@@ -238,7 +260,6 @@ function publishTelemetria(retain = false) {
     distKm:        Math.round(distKm),
     ts:            Date.now(),
   };
-  // QoS 0: telemetria é fire-and-forget (dado antigo = sem valor)
   publish(TOPICS.telemetria, payload, 0, retain);
 }
 
@@ -246,14 +267,12 @@ function tick() {
   updatePhysics();
   publishTelemetria(false);
 
-  // Log a cada 10% de progresso
   const pct = Math.round(state.progress * 100);
   if (pct % 10 === 0 && pct > 0) {
     console.log(`[${CFG.callsign}] ${pct}% | fase=${state.phase} | alt=${Math.round(state.altitude)}ft | spd=${Math.round(state.speed)}km/h`);
   }
 
   if (state.phase === 'landed') {
-    // Publicar evento de pouso (QoS 1)
     publish(TOPICS.evento, {
       evento:      'pousou',
       callsign:    CFG.callsign,
@@ -264,8 +283,8 @@ function tick() {
     }, 1);
 
     console.log(`[${CFG.callsign}] ✓ Pousou em ${CFG.destination}. Encerrando em 3s.`);
-    clearInterval(tickInterval);
-    setTimeout(() => { client.end(); process.exit(0); }, 3000);
+    if (tickInterval) clearInterval(tickInterval);
+    setTimeout(() => { if (client) client.end(); process.exit(0); }, 3000);
   }
 }
 
@@ -278,8 +297,11 @@ process.on('SIGTERM', () => {
     reason:    'SIGTERM',
     ts:        Date.now(),
   }, 1);
-  clearInterval(tickInterval);
-  setTimeout(() => { client.end(); process.exit(0); }, 1000);
+  if (tickInterval) clearInterval(tickInterval);
+  setTimeout(() => { if (client) client.end(); process.exit(0); }, 1000);
 });
 
 process.on('SIGINT', () => process.emit('SIGTERM'));
+
+// Inicia o processo buscando a primeira rota via GeoDNS
+iniciarConexaoMqtt();

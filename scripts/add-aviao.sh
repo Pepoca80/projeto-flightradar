@@ -18,7 +18,7 @@ docker build -t usp-airline-aviao ./aviao -q
 docker rm -f "$NAME" 2>/dev/null || true
 docker run -d --name "$NAME" \
   --network usp-airline-net \
-  -e BROKER_URL=mqtt://broker:1883 \
+  -e GEODNS_URL=http://geodns:8080 \
   -e CALLSIGN="$CALLSIGN" \
   -e AIRLINE="$AIRLINE" \
   -e IATA_AIRLINE="$IATA" \

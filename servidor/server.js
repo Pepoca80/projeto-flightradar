@@ -53,7 +53,7 @@ async function initDb() {
     
     await setupClient.execute(`
       CREATE KEYSPACE IF NOT EXISTS ${CFG.dbKeyspace}
-      WITH replication = {'class': 'SimpleStrategy', 'replication_factor': 1};
+      WITH replication = {'class': 'SimpleStrategy', 'replication_factor': 5};
     `);
 
     await setupClient.execute(`
