@@ -30,7 +30,7 @@ services:
     build: ./broker
     container_name: usp-airline-broker-sul
     ports:
-      - "1881:1883" 
+      - "1891:1883"
     volumes:
       - mosquitto_data_sul:/mosquitto/data
     networks:

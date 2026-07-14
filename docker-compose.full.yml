@@ -10,7 +10,12 @@
 #               http://localhost:4000/voos
 #               http://localhost:4000/eventos
 #               http://localhost:4000/historico/{CALLSIGN}
-#    MQTT:      mqtt://localhost:1883
+#    MQTT local por região:
+#      broker_sul          -> mqtt://localhost:1891
+#      broker_sudeste      -> mqtt://localhost:1892
+#      broker_norte        -> mqtt://localhost:1893
+#      broker_nordeste     -> mqtt://localhost:1894
+#      broker_centro_oeste -> mqtt://localhost:1895
 #
 #  Uso:
 #    docker-compose up --build
@@ -64,7 +69,7 @@ services:
     build: ./broker
     container_name: usp-airline-broker-sul
     ports:
-      - "1881:1883" 
+      - "1891:1883"
     volumes:
       - mosquitto_data_sul:/mosquitto/data
     networks:
@@ -122,7 +127,7 @@ services:
     build: ./broker
     container_name: usp-airline-broker-sudeste
     ports:
-      - "1882:1883" 
+      - "1892:1883"
     volumes:
       - mosquitto_data_sudeste:/mosquitto/data
     networks:
@@ -180,7 +185,7 @@ services:
     build: ./broker
     container_name: usp-airline-broker-norte
     ports:
-      - "1883:1883" 
+      - "1893:1883"
     volumes:
       - mosquitto_data_norte:/mosquitto/data
     networks:
@@ -238,7 +243,7 @@ services:
     build: ./broker
     container_name: usp-airline-broker-nordeste
     ports:
-      - "1884:1883" 
+      - "1894:1883"
     volumes:
       - mosquitto_data_nordeste:/mosquitto/data
     networks:
@@ -296,7 +301,7 @@ services:
     build: ./broker
     container_name: usp-airline-broker-centro-oeste
     ports:
-      - "1885:1883" 
+      - "1895:1883"
     volumes:
       - mosquitto_data_centro_oeste:/mosquitto/data
     networks:

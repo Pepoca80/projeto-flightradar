@@ -85,7 +85,12 @@ docker compose up --build
 # 3. Acessar
 # Mapa:    http://localhost:3000
 # API:     http://localhost:4000/status
-# MQTT:    mqtt://localhost:1883
+# MQTT local por região:
+#   sul:          mqtt://localhost:1891
+#   sudeste:      mqtt://localhost:1892
+#   norte:        mqtt://localhost:1893
+#   nordeste:     mqtt://localhost:1894
+#   centro-oeste: mqtt://localhost:1895
 ```
 
 ---
