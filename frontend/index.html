@@ -551,7 +551,17 @@
     // const COORDENADAS_TESTE = { lat: -3.0, lon: -60.0 };  // NORTE (Manaus)
     const COORDENADAS_TESTE = null; // Deixe null para usar a geolocalização real
 
-    const SERVER_API = `http://${location.hostname}:4000`;
+    const APP_HOST = location.hostname;
+    const APP_PROTOCOL = location.protocol === 'https:' ? 'https:' : 'http:';
+    const WS_PROTOCOL = location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const GEO_DNS_URL = `${APP_PROTOCOL}//${APP_HOST}:8080`;
+    const SERVER_PORT_BY_BROKER = {
+      broker_sul: 4001,
+      broker_sudeste: 4002,
+      broker_norte: 4003,
+      broker_nordeste: 4004,
+      broker_centro_oeste: 4005
+    };
     let SERVER_WS = "";
 
     const PHASE_COLOR = { climbing: '#00ff88', cruise: '#00d4ff', descending: '#ffb800', ground: '#555', landed: '#333', emergency: '#ff4466' };
@@ -586,11 +596,15 @@
     async function descobrirServidor() {
       const pos = COORDENADAS_TESTE || await new Promise(resolve => navigator.geolocation.getCurrentPosition(p => resolve({ lat: p.coords.latitude, lon: p.coords.longitude }), () => resolve({ lat: -23.55, lon: -46.63 })));
       try {
-        const resp = await fetch(`${SERVER_API.replace(':4000', ':8080')}/resolver?lat=${pos.lat}&lon=${pos.lon}`);
+        const resp = await fetch(`${GEO_DNS_URL}/resolver?lat=${pos.lat}&lon=${pos.lon}`);
         const data = await resp.json();
-        const regiao = data.brokerUrl.split('//')[1].split(':')[0].replace('broker', 'servidor');
-        return `ws://${regiao}:4000`;
-      } catch (e) { return 'ws://servidor_sudeste:4000'; }
+        const brokerHost = (data.brokerUrl || '').split('//')[1]?.split(':')[0];
+        const portaServidor = SERVER_PORT_BY_BROKER[brokerHost];
+        if (!portaServidor) throw new Error(`Broker desconhecido: ${brokerHost || 'vazio'}`);
+        return `${WS_PROTOCOL}//${APP_HOST}:${portaServidor}`;
+      } catch (e) {
+        return `${WS_PROTOCOL}//${APP_HOST}:4002`;
+      }
     }
 
     async function connect() {

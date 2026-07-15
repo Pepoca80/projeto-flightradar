@@ -24,7 +24,7 @@ function verificarSaudeBroker(host) {
     if (!getBrokersAtivos().includes(host)) return resolve(false);
 
     const socket = new net.Socket();
-    socket.setTimeout(500);
+    socket.setTimeout(1500); // Timeout de 1.5 segundos
     socket.connect(1883, host);
 
     socket.on('connect', () => { socket.destroy(); resolve(true); });

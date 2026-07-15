@@ -10,8 +10,8 @@ networks:
     driver: bridge
 
 volumes:
-  mosquitto_data_sul:
-  cassandra_data_sul:
+  mosquitto_data_sudeste:
+  cassandra_data_sudeste:
 
 services:
 
@@ -25,58 +25,51 @@ services:
       - usp-airline-net
     restart: unless-stopped
 
-# ── REGIÃO SUL ──
-  broker_sul:
+# ── REGIÃO SUDESTE ──
+  broker_sudeste:
     build: ./broker
-    container_name: usp-airline-broker-sul
+    container_name: usp-airline-broker-sudeste
     ports:
-      - "1891:1883"
+      - "1892:1883"
     volumes:
-      - mosquitto_data_sul:/mosquitto/data
+      - mosquitto_data_sudeste:/mosquitto/data
       - ./broker/mosquitto.dev.conf:/mosquitto/config/mosquitto.conf
     command: ["mosquitto", "-c", "/mosquitto/config/mosquitto.conf"]
     networks:
       - usp-airline-net
     restart: unless-stopped
-    healthcheck:
-      test: ["CMD", "mosquitto_sub", "-h", "localhost", "-p", "1883", "-t", "$$SYS/broker/uptime", "-C", "1", "-W", "3"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-  banco_sul:
+
+  banco_sudeste:
     image: cassandra:latest
-    container_name: usp-airline-cassandra-sul
-    mem_limit: 1024m
+    container_name: usp-airline-cassandra-sudeste
+    mem_limit: 1536m
     environment:
       CASSANDRA_CLUSTER_NAME: usp-airline
       CASSANDRA_DC: datacenter1
-      CASSANDRA_SEEDS: banco_sul
+      CASSANDRA_SEEDS: banco_sudeste
+      MAX_HEAP_SIZE: "512M"
+      HEAP_NEWSIZE: "128M"
     volumes:
-      - cassandra_data_sul:/var/lib/cassandra
+      - cassandra_data_sudeste:/var/lib/cassandra
     networks:
       - usp-airline-net
-    healthcheck:
-      test: ["CMD-SHELL", "cqlsh -e \"SELECT release_version FROM system.local\" >/dev/null"]
-      interval: 20s
-      timeout: 10s
-      retries: 10
 
-  servidor_sul:
+  servidor_sudeste:
     build: ./servidor
-    container_name: usp-airline-servidor-sul
+    container_name: usp-airline-servidor-sudeste
     ports:
-      - "4001:4000"
+      - "4002:4000"
     environment:
-      BROKER_URL: mqtt://broker_sul:1883
+      BROKER_URL: mqtt://broker_sudeste:1883
       HTTP_PORT: "4000"
-      CASSANDRA_CONTACT_POINTS: banco_sul
-      CASSANDRA_DATACENTER: datacenter1
+      CASSANDRA_CONTACT_POINTS: banco_sudeste
+      CASSANDRA_DATACENTER: datacenter2
       CASSANDRA_KEYSPACE: usp_airlines
     networks:
       - usp-airline-net
     depends_on:
-      broker_sul: { condition: service_healthy }
-      banco_sul: { condition: service_healthy }
+      broker_sudeste: { condition: service_started }
+      banco_sudeste: { condition: service_started }
     restart: unless-stopped
 
   # ── FRONTEND ──
@@ -88,7 +81,7 @@ services:
     networks:
       - usp-airline-net
     depends_on:
-      - servidor_sul
+      - servidor_sudeste
     restart: unless-stopped
 
   # ── AVIÕES ──────────────────────────────────────────────────────────

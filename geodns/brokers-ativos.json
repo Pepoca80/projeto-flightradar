@@ -1,7 +1,7 @@
 {
   "brokers": {
-    "broker_sul": true,
-    "broker_sudeste": false,
+    "broker_sul": false,
+    "broker_sudeste": true,
     "broker_norte": false,
     "broker_nordeste": false,
     "broker_centro_oeste": false
