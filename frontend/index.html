@@ -563,12 +563,15 @@
       broker_centro_oeste: 4005
     };
     let SERVER_WS = "";
+    let SERVER_HTTP = "";
 
     const PHASE_COLOR = { climbing: '#00ff88', cruise: '#00d4ff', descending: '#ffb800', ground: '#555', landed: '#333', emergency: '#ff4466' };
     const AIRPORTS = { GRU: { lat: -23.4356, lng: -46.4731, city: 'São Paulo GRU' }, CGH: { lat: -23.6261, lng: -46.6564, city: 'São Paulo CGH' }, VCP: { lat: -23.0074, lng: -47.1345, city: 'Campinas VCP' }, GIG: { lat: -22.8099, lng: -43.2505, city: 'Rio Galeão' }, SDU: { lat: -22.9105, lng: -43.1631, city: 'Rio Santos Dumont' }, BSB: { lat: -15.8711, lng: -47.9186, city: 'Brasília' }, SSA: { lat: -12.9086, lng: -38.3225, city: 'Salvador' }, FOR: { lat: -3.7763, lng: -38.5326, city: 'Fortaleza' }, REC: { lat: -8.1265, lng: -34.9235, city: 'Recife' }, CWB: { lat: -25.5285, lng: -49.1758, city: 'Curitiba' }, POA: { lat: -29.9939, lng: -51.1714, city: 'Porto Alegre' }, MAO: { lat: -3.0386, lng: -60.0497, city: 'Manaus' }, BEL: { lat: -1.3792, lng: -48.4762, city: 'Belém' }, THE: { lat: -5.0600, lng: -42.8236, city: 'Teresina' }, NAT: { lat: -5.9114, lng: -35.2476, city: 'Natal' }, MCZ: { lat: -9.5108, lng: -35.7917, city: 'Maceió' }, FLN: { lat: -27.6702, lng: -48.5522, city: 'Florianópolis' }, GYN: { lat: -16.6320, lng: -49.2207, city: 'Goiânia' } };
 
     let flights = {}, markers = {}, trails = {};
     let selFlight = null, currentTab = 'voos', totalMsgs = 0, msgsWin = 0, mps = 0, srvMetrics = {}, ws = null;
+    let historyCache = {};
+    let eventsCache = [];
 
     const mapaEscuro = L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_nolabels/{z}/{x}/{y}{r}.png', { maxZoom: 18 });
     const map = L.map('map', { zoomControl: false, attributionControl: false, layers: [mapaEscuro] }).setView([-14, -51], 4);
@@ -601,20 +604,226 @@
         const brokerHost = (data.brokerUrl || '').split('//')[1]?.split(':')[0];
         const portaServidor = SERVER_PORT_BY_BROKER[brokerHost];
         if (!portaServidor) throw new Error(`Broker desconhecido: ${brokerHost || 'vazio'}`);
+        SERVER_HTTP = `${APP_PROTOCOL}//${APP_HOST}:${portaServidor}`;
         return `${WS_PROTOCOL}//${APP_HOST}:${portaServidor}`;
       } catch (e) {
+        SERVER_HTTP = `${APP_PROTOCOL}//${APP_HOST}:4002`;
         return `${WS_PROTOCOL}//${APP_HOST}:4002`;
       }
     }
 
+    function formatHora(valor) {
+      const data = new Date(valor);
+      if (Number.isNaN(data.getTime())) return '-';
+      return data.toLocaleString('pt-BR');
+    }
+
+    function setDetail(html) {
+      document.getElementById('detail').innerHTML = html;
+    }
+
+    function renderFlightsList() {
+      const list = document.getElementById('list');
+      const voos = Object.values(flights).sort((a, b) => (a.callsign || '').localeCompare(b.callsign || ''));
+
+      if (!voos.length) {
+        list.innerHTML = '<div class="frow"><div class="finfo"><div class="froute">Nenhum voo ativo</div><div class="fdet">Aguarde a telemetria chegar</div></div></div>';
+        setDetail('<div class="dtitle" style="color:var(--muted)">— Selecione um voo —</div>');
+        document.getElementById('s-voos').textContent = '0';
+        return;
+      }
+
+      document.getElementById('s-voos').textContent = String(voos.length);
+      list.innerHTML = voos.map(f => {
+        const sel = selFlight === f.callsign ? ' sel' : '';
+        return `<div class="frow${sel}" onclick="selectFlight('${f.callsign}')">
+          <div class="fdot" style="background:${PHASE_COLOR[f.phase] || '#00d4ff'}"></div>
+          <div class="finfo">
+            <div class="fcs">${f.callsign}</div>
+            <div class="froute">${f.origin || '?'} → ${f.destination || '?'}</div>
+            <div class="fdet">${f.airline || ''} · ${f.phase || ''}</div>
+          </div>
+        </div>`;
+      }).join('');
+    }
+
+    function renderMetrics() {
+      const m = srvMetrics || {};
+      document.getElementById('s-msgs').textContent = String(m.totalMsgs ?? totalMsgs ?? 0);
+      document.getElementById('s-mps').textContent = String(m.msgsPerSec ?? mps ?? 0);
+      document.getElementById('s-ws').textContent = String(m.wsClients ?? 0);
+
+      setDetail(`
+        <div class="dtitle">Métricas do servidor</div>
+        <div class="dgrid">
+          <div><div class="dkey">Voos ativos</div><div class="dval">${m.voosAtivos ?? Object.keys(flights).length}</div></div>
+          <div><div class="dkey">Mensagens totais</div><div class="dval">${m.totalMsgs ?? totalMsgs}</div></div>
+          <div><div class="dkey">Mensagens por segundo</div><div class="dval">${m.msgsPerSec ?? mps}</div></div>
+          <div><div class="dkey">Clientes WS</div><div class="dval">${m.wsClients ?? 0}</div></div>
+          <div><div class="dkey">Uptime</div><div class="dval">${Math.floor(m.uptime || 0)} s</div></div>
+          <div><div class="dkey">Memória</div><div class="dval">${m.memMb ?? 0} MB</div></div>
+        </div>
+      `);
+    }
+
+    function renderHistory() {
+      const list = document.getElementById('list');
+      const entries = Object.values(historyCache || {});
+
+      if (!entries.length) {
+        list.innerHTML = '<div class="frow"><div class="finfo"><div class="froute">Sem histórico carregado</div><div class="fdet">Selecione um voo para consultar</div></div></div>';
+        setDetail('<div class="dtitle" style="color:var(--muted)">— Histórico —</div>');
+        return;
+      }
+
+      list.innerHTML = entries.map(item => `
+        <div class="frow" onclick="selectFlight('${item.callsign}')">
+          <div class="fdot" style="background:var(--amber)"></div>
+          <div class="finfo">
+            <div class="fcs">${item.callsign}</div>
+            <div class="froute">${item.points?.length || 0} pontos</div>
+            <div class="fdet">Último ponto: ${formatHora(item.points?.[0]?.ts)}</div>
+          </div>
+        </div>
+      `).join('');
+
+      setDetail(`
+        <div class="dtitle">Histórico</div>
+        <div class="dgrid">
+          <div><div class="dkey">Voos com histórico</div><div class="dval">${entries.length}</div></div>
+          <div><div class="dkey">Pontos carregados</div><div class="dval">${entries.reduce((sum, item) => sum + (item.points?.length || 0), 0)}</div></div>
+        </div>
+      `);
+    }
+
+    function renderArquitetura() {
+      document.getElementById('list').innerHTML = `
+        <div class="frow">
+          <div class="fdot" style="background:var(--accent)"></div>
+          <div class="finfo"><div class="froute">Aviões</div><div class="fdet">Publicam telemetria via MQTT</div></div>
+        </div>
+        <div class="frow">
+          <div class="fdot" style="background:var(--amber)"></div>
+          <div class="finfo"><div class="froute">GeoDNS</div><div class="fdet">Escolhe o broker/servidor mais próximo</div></div>
+        </div>
+        <div class="frow">
+          <div class="fdot" style="background:var(--purple)"></div>
+          <div class="finfo"><div class="froute">Servidores</div><div class="fdet">Subscriber + WebSocket + Cassandra</div></div>
+        </div>
+        <div class="frow">
+          <div class="fdot" style="background:var(--green)"></div>
+          <div class="finfo"><div class="froute">Frontend</div><div class="fdet">Consome WS e REST do servidor regional</div></div>
+        </div>
+      `;
+
+      setDetail(`
+        <div class="dtitle">Arquitetura</div>
+        <div class="dgrid">
+          <div><div class="dkey">Fluxo</div><div class="dval">Avião → Broker → Servidor → Frontend</div></div>
+          <div><div class="dkey">Descoberta</div><div class="dval">GeoDNS por localização</div></div>
+        </div>
+      `);
+    }
+
+    async function carregarStatus() {
+      if (!SERVER_HTTP) return;
+      try {
+        const resp = await fetch(`${SERVER_HTTP}/status`);
+        srvMetrics = await resp.json();
+        renderCurrentPanel();
+      } catch {
+        // mantém o último estado exibido
+      }
+    }
+
+    async function carregarHistorico(callsign) {
+      if (!SERVER_HTTP || !callsign) return;
+      try {
+        const resp = await fetch(`${SERVER_HTTP}/historico/${callsign}`);
+        const data = await resp.json();
+        historyCache = { [callsign]: data };
+        if (currentTab === 'hist') renderHistory();
+      } catch {
+        historyCache = {};
+      }
+    }
+
+    async function carregarEventos() {
+      if (!SERVER_HTTP) return;
+      try {
+        const resp = await fetch(`${SERVER_HTTP}/eventos`);
+        eventsCache = await resp.json();
+      } catch {
+        eventsCache = [];
+      }
+    }
+
+    function renderCurrentPanel() {
+      if (currentTab === 'metr') return renderMetrics();
+      if (currentTab === 'hist') return renderHistory();
+      if (currentTab === 'arq') return renderArquitetura();
+      return renderFlightsList();
+    }
+
+    function updateOverviewCounts() {
+      const voosAtivos = Object.keys(flights).length;
+      document.getElementById('s-voos').textContent = String(voosAtivos);
+      document.getElementById('s-msgs').textContent = String(srvMetrics.totalMsgs ?? totalMsgs);
+      document.getElementById('s-mps').textContent = String(srvMetrics.msgsPerSec ?? mps);
+      document.getElementById('s-ws').textContent = String(srvMetrics.wsClients ?? 0);
+    }
+
+    function updateFlightDetails(f) {
+      setDetail(`
+        <div class="dtitle">${f.callsign}</div>
+        <div class="dgrid">
+          <div><div class="dkey">Companhia</div><div class="dval">${f.airline || '-'}</div></div>
+          <div><div class="dkey">Rota</div><div class="dval">${f.origin || '-'} → ${f.destination || '-'}</div></div>
+          <div><div class="dkey">Altitude</div><div class="dval">${(f.altitude || 0).toLocaleString()} ft</div></div>
+          <div><div class="dkey">Velocidade</div><div class="dval">${f.speed || 0} km/h</div></div>
+          <div><div class="dkey">Rumo</div><div class="dval">${f.heading || 0}°</div></div>
+          <div><div class="dkey">Fase</div><div class="dval">${f.phase || '-'}</div></div>
+        </div>
+      `);
+    }
+
+    function selectFlight(callsign) {
+      selFlight = callsign;
+      const flight = flights[callsign];
+      renderCurrentPanel();
+      if (flight) {
+        updateFlightDetails(flight);
+        carregarHistorico(callsign);
+      }
+      document.querySelectorAll('.frow').forEach(row => row.classList.remove('sel'));
+    }
+
     async function connect() {
       SERVER_WS = await descobrirServidor();
+      await carregarStatus();
+      await carregarEventos();
       ws = new WebSocket(SERVER_WS);
       ws.onopen = () => { setConn('ok', 'CONECTADO'); addLog('ws', `Conectado a ${SERVER_WS}`, 'g'); };
       ws.onmessage = (e) => {
         const msg = JSON.parse(e.data);
-        if (msg.type === 'SNAPSHOT') { Object.values(msg.flights || {}).forEach(f => { flights[f.callsign] = f; updateMarker(f); }); }
-        if (msg.type === 'TELEMETRIA') { const f = msg.payload; flights[f.callsign] = f; updateMarker(f); }
+        if (msg.type === 'SNAPSHOT') {
+          Object.values(msg.flights || {}).forEach(f => { flights[f.callsign] = f; updateMarker(f); });
+          srvMetrics = msg.metrics || srvMetrics;
+          updateOverviewCounts();
+          renderCurrentPanel();
+        }
+        if (msg.type === 'TELEMETRIA') {
+          const f = msg.payload;
+          flights[f.callsign] = f;
+          updateMarker(f);
+          updateOverviewCounts();
+          if (currentTab === 'voos') renderFlightsList();
+          if (selFlight === f.callsign) updateFlightDetails(f);
+        }
+        if (msg.type === 'EVENTO') {
+          addLog('evento', `${msg.payload.evento || ''} ${msg.payload.callsign || ''}`, 'y');
+          carregarEventos();
+        }
       };
       ws.onclose = () => { setConn('err', 'DESCONECTADO'); setTimeout(connect, 3000); };
     }
@@ -634,9 +843,16 @@
     }
 
     // UI helpers (setTab, setConn, addLog, etc. mantidos da estrutura original)
-    function setTab(name, el) { currentTab = name; document.querySelectorAll('.tab').forEach(t => t.classList.remove('on')); el.classList.add('on'); }
+    function setTab(name, el) { currentTab = name; document.querySelectorAll('.tab').forEach(t => t.classList.remove('on')); el.classList.add('on'); renderCurrentPanel(); }
     function setConn(state, txt) { const b = document.getElementById('conn-badge'); b.className = 'badge ' + state; document.getElementById('conn-txt').textContent = txt; }
     function addLog(topic, msg, cls) { const el = document.getElementById('log'); el.innerHTML = `<div class="le">[${new Date().toLocaleTimeString()}] <b>${topic}</b> ${msg}</div>` + el.innerHTML; }
+
+    setInterval(() => {
+      totalMsgs += msgsWin;
+      msgsWin = 0;
+      mps = srvMetrics.msgsPerSec ?? mps;
+      updateOverviewCounts();
+    }, 1000);
 
     requestAnimationFrame(animarPrevisaoRotas);
     connect();
