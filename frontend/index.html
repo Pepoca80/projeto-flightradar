@@ -542,14 +542,7 @@
 
   <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
   <script>
-    // ─── CONFIGURAÇÃO DE TESTE MANUAL ───
-    // Descomente apenas uma das constantes abaixo para forçar o servidor regional:
-    // const COORDENADAS_TESTE = { lat: -27.5, lon: -48.5 }; // SUL (Florianópolis)
-    // const COORDENADAS_TESTE = { lat: -23.5, lon: -46.6 }; // SUDESTE (São Paulo)
-    // const COORDENADAS_TESTE = { lat: -15.8, lon: -47.9 }; // CENTRO-OESTE (Brasília)
-    // const COORDENADAS_TESTE = { lat: -8.0, lon: -34.9 };  // NORDESTE (Recife)
-    // const COORDENADAS_TESTE = { lat: -3.0, lon: -60.0 };  // NORTE (Manaus)
-    const COORDENADAS_TESTE = null; // Deixe null para usar a geolocalização real
+    const COORDENADAS_TESTE = null;
 
     const APP_HOST = location.hostname;
     const APP_PROTOCOL = location.protocol === 'https:' ? 'https:' : 'http:';
@@ -573,21 +566,81 @@
     let historyCache = {};
     let eventsCache = [];
 
-    const mapaEscuro = L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_nolabels/{z}/{x}/{y}{r}.png', { maxZoom: 18 });
-    const map = L.map('map', { zoomControl: false, attributionControl: false, layers: [mapaEscuro] }).setView([-14, -51], 4);
+    const Stadia_AlidadeSatellite = L.tileLayer('https://tiles.stadiamaps.com/tiles/alidade_satellite/{z}/{x}/{y}{r}.{ext}', {
+      minZoom: 0,
+      maxZoom: 20,
+      attribution: '&copy; CNES, Distribution Airbus DS, © Airbus DS, © PlanetObserver (Contains Copernicus Data) | &copy; <a href="https://www.stadiamaps.com/" target="_blank">Stadia Maps</a> &copy; <a href="https://openmaptiles.org/" target="_blank">OpenMapTiles</a> &copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+      ext: 'jpg'
+    });
+    const map = L.map('map', { zoomControl: false, attributionControl: true, layers: [Stadia_AlidadeSatellite], worldCopyJump: false }).setView([-14, -51], 4);
     L.control.zoom({ position: 'bottomright' }).addTo(map);
 
+    const ICON_ROTATION_OFFSET = 315;
+
     function planeIcon(f) {
-      const c = PHASE_COLOR[f.phase] || '#00d4ff', h = f.heading || 0;
-      return L.divIcon({ className: '', html: `<svg width="28" height="28" viewBox="0 0 32 32" style="transform:rotate(${h}deg);filter:drop-shadow(0 1px 2px rgba(0,0,0,0.5))" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M16 2 C14.5 2 13.5 3 13.5 4.5 L13 18 L13.5 28 C13.5 29.5 14.5 30 16 30 C17.5 30 18.5 29.5 18.5 28 L19 18 L18.5 4.5 C18.5 3 17.5 2 16 2 Z" fill="${c}" opacity="0.95"/><path d="M13 10 L2 17 L2 19 L13 15.5 Z" fill="${c}" opacity="0.85"/><path d="M19 10 L30 17 L30 19 L19 15.5 Z" fill="${c}" opacity="0.85"/><path d="M13.5 23 L7 27 L7 28.5 L13.5 25.5 Z" fill="${c}" opacity="0.75"/><path d="M18.5 23 L25 27 L25 28.5 L18.5 25.5 Z" fill="${c}" opacity="0.75"/><ellipse cx="16" cy="6" rx="1.5" ry="2" fill="rgba(255,255,255,0.3)"/></svg>`, iconSize: [28, 28], iconAnchor: [14, 14] });
+      const h = f.heading || 0;
+      return L.divIcon({
+        className: '',
+        html: `<svg width="30" height="30" viewBox="0 0 76 76" style="transform:rotate(${h + ICON_ROTATION_OFFSET}deg);filter:drop-shadow(0 2px 3px rgba(0,0,0,0.6))" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" version="1.1" baseProfile="full">
+          <path fill="#FF00EF" fill-opacity="1" stroke-width="0.2" stroke-linejoin="round" d="M 55.4764,22.0625L 55.4134,22.1254C 55.4134,22.1254 57.5889,22.6373 48.2065,33.0244L 49.4015,39.3332L 49.8155,38.9192C 50.4338,38.3009 51.4363,38.3009 52.0546,38.9192C 52.673,39.5375 52.673,40.5401 52.0546,41.1584L 50.0536,43.1594L 50.5017,46.0701L 50.6551,45.9166C 51.2735,45.2983 52.276,45.2983 52.8943,45.9166C 53.5126,46.535 53.5126,47.5375 52.8943,48.1558L 51.0175,50.0326C 51.384,53.2996 51.5253,56.1205 51.2149,57.6723C 51.2149,57.6723 49.2557,59.6315 48.1361,58.512C 48.1361,58.512 44.343,45.6154 41.7525,39.8052C 31.7557,49.9687 31.0624,49.2754 31.0624,49.2754C 31.0624,49.2754 33.0217,55.713 30.7825,57.9522L 26.8639,50.6749L 26.9269,50.6119L 19.6496,46.6933C 21.8888,44.4541 28.3264,46.4134 28.3264,46.4134C 28.3264,46.4134 27.6331,45.7201 37.7966,35.7233C 31.9864,33.1328 19.0898,29.3397 19.0898,29.3397C 17.9702,28.2202 19.9295,26.2609 19.9295,26.2609C 21.4813,25.9505 24.3022,26.0919 27.5692,26.4583L 29.446,24.5815C 30.0643,23.9632 31.0668,23.9632 31.6852,24.5815C 32.3035,25.1998 32.3035,26.2023 31.6852,26.8207L 31.5317,26.9742L 34.4423,27.4222L 36.4434,25.4212C 37.0617,24.8028 38.0642,24.8028 38.6826,25.4212C 39.3009,26.0395 39.3009,27.042 38.6826,27.6604L 38.2686,28.0743L 44.5774,29.2693C 54.9645,19.8869 55.4764,22.0625 55.4764,22.0625 Z "/>
+        </svg>`,
+        iconSize: [30, 30],
+        iconAnchor: [15, 15]
+      });
     }
+
+    function tooltipHtml(f) {
+      return `<div style="font-family:JetBrains Mono,monospace;font-size:11px;background:#111827;border:1px solid #1e2d4a;color:#c8d8f0;padding:6px 10px;border-radius:3px;min-width:140px"><div style="color:${PHASE_COLOR[f.phase] || '#00d4ff'};font-weight:700">${f.callsign} · ${f.airline || ''}</div><div>${f.origin || '?'} → ${f.destination || '?'}</div><div style="color:#4a6080">${(f.altitude || 0).toLocaleString()} ft · ${f.speed || 0} km/h</div><div style="color:#4a6080">${f.phase || ''} · ${Math.round((f.progress || 0) * 100)}%</div></div>`;
+    }
+
+    let ghostMarkers = {};
+    const GHOST_RANGE = 3;
+
+    function syncGhostsForFlight(cs) {
+      const primary = markers[cs];
+      const f = flights[cs];
+      if (!primary || !f) return;
+      const pos = primary.getLatLng();
+      if (!ghostMarkers[cs]) ghostMarkers[cs] = {};
+      const bounds = map.getBounds().pad(0.6);
+      for (let off = -GHOST_RANGE; off <= GHOST_RANGE; off++) {
+        if (off === 0) continue;
+        const key = String(off);
+        const lng = pos.lng + off * 360;
+        const visivel = lng >= bounds.getWest() && lng <= bounds.getEast();
+        if (visivel) {
+          if (!ghostMarkers[cs][key]) {
+            const gm = L.marker([pos.lat, lng], { icon: planeIcon(f) }).addTo(map);
+            gm.on('click', () => selectFlight(cs));
+            gm.bindTooltip(tooltipHtml(f), { offset: [12, 0], direction: 'right', opacity: 1 });
+            ghostMarkers[cs][key] = { marker: gm, offset: off };
+          } else {
+            ghostMarkers[cs][key].marker.setLatLng([pos.lat, lng]);
+          }
+        } else if (ghostMarkers[cs][key]) {
+          map.removeLayer(ghostMarkers[cs][key].marker);
+          delete ghostMarkers[cs][key];
+        }
+      }
+    }
+
+    function syncAllGhosts() {
+      Object.keys(flights).forEach(syncGhostsForFlight);
+    }
+
+    map.on('moveend zoomend', syncAllGhosts);
 
     function updateMarker(f) {
       const cs = f.callsign;
       if (markers[cs]) { markers[cs].setIcon(planeIcon(f)); }
       else { const m = L.marker([f.lat, f.lng], { icon: planeIcon(f) }).addTo(map); m.on('click', () => selectFlight(cs)); markers[cs] = m; }
 
-      markers[cs].bindTooltip(`<div style="font-family:JetBrains Mono,monospace;font-size:11px;background:#111827;border:1px solid #1e2d4a;color:#c8d8f0;padding:6px 10px;border-radius:3px;min-width:140px"><div style="color:${PHASE_COLOR[f.phase] || '#00d4ff'};font-weight:700">${f.callsign} · ${f.airline || ''}</div><div>${f.origin || '?'} → ${f.destination || '?'}</div><div style="color:#4a6080">${(f.altitude || 0).toLocaleString()} ft · ${f.speed || 0} km/h</div><div style="color:#4a6080">${f.phase || ''} · ${Math.round((f.progress || 0) * 100)}%</div></div>`, { offset: [12, 0], direction: 'right', opacity: 1 });
+      markers[cs].bindTooltip(tooltipHtml(f), { offset: [12, 0], direction: 'right', opacity: 1 });
+
+      if (ghostMarkers[cs]) {
+        Object.values(ghostMarkers[cs]).forEach(g => g.marker.setIcon(planeIcon(f)));
+      }
+      syncGhostsForFlight(cs);
 
       if (!trails[cs]) trails[cs] = { pts: [], line: null };
       trails[cs].pts.push([f.lat, f.lng]);
@@ -732,7 +785,6 @@
         srvMetrics = await resp.json();
         renderCurrentPanel();
       } catch {
-        // mantém o último estado exibido
       }
     }
 
@@ -837,12 +889,15 @@
         const latR = f.lat * Math.PI / 180, lonR = f.lng * Math.PI / 180, headR = f.heading * Math.PI / 180;
         const nLat = Math.asin(Math.sin(latR) * Math.cos(dist / rad) + Math.cos(latR) * Math.sin(dist / rad) * Math.cos(headR));
         const nLon = lonR + Math.atan2(Math.sin(headR) * Math.sin(dist / rad) * Math.cos(latR), Math.cos(dist / rad) - Math.sin(latR) * Math.sin(nLat));
-        if (markers[cs]) markers[cs].setLatLng([nLat * 180 / Math.PI, nLon * 180 / Math.PI]);
+        const nLatDeg = nLat * 180 / Math.PI, nLonDeg = nLon * 180 / Math.PI;
+        if (markers[cs]) markers[cs].setLatLng([nLatDeg, nLonDeg]);
+        if (ghostMarkers[cs]) {
+          Object.values(ghostMarkers[cs]).forEach(g => g.marker.setLatLng([nLatDeg, nLonDeg + g.offset * 360]));
+        }
       }
       requestAnimationFrame(animarPrevisaoRotas);
     }
 
-    // UI helpers (setTab, setConn, addLog, etc. mantidos da estrutura original)
     function setTab(name, el) { currentTab = name; document.querySelectorAll('.tab').forEach(t => t.classList.remove('on')); el.classList.add('on'); renderCurrentPanel(); }
     function setConn(state, txt) { const b = document.getElementById('conn-badge'); b.className = 'badge ' + state; document.getElementById('conn-txt').textContent = txt; }
     function addLog(topic, msg, cls) { const el = document.getElementById('log'); el.innerHTML = `<div class="le">[${new Date().toLocaleTimeString()}] <b>${topic}</b> ${msg}</div>` + el.innerHTML; }
