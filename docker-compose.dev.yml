@@ -63,7 +63,7 @@ services:
       BROKER_URL: mqtt://broker_sudeste:1883
       HTTP_PORT: "4000"
       CASSANDRA_CONTACT_POINTS: banco_sudeste
-      CASSANDRA_DATACENTER: datacenter2
+      CASSANDRA_DATACENTER: datacenter1
       CASSANDRA_KEYSPACE: usp_airlines
     networks:
       - usp-airline-net

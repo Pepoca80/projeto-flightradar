@@ -16,16 +16,16 @@
     }
 
     :root {
-      --bg: #0a0e1a;
-      --surface: #111827;
-      --border: #1e2d4a;
-      --accent: #00d4ff;
+      --bg: #0a0b0e;
+      --surface: #0b0c0c;
+      --border: #dbbd13;
+      --accent: #dbbd13;
       --green: #00ff88;
       --amber: #ffb800;
       --red: #ff4466;
       --purple: #a855f7;
       --text: #c8d8f0;
-      --muted: #4a6080;
+      --muted: #bb8511;
       --mono: 'JetBrains Mono', monospace;
       --display: 'Syne', sans-serif;
     }
@@ -195,7 +195,7 @@
     }
 
     #sidebar {
-      width: 290px;
+      width: 490px; 
       background: var(--surface);
       border-left: 1px solid var(--border);
       display: flex;
@@ -328,7 +328,7 @@
       padding: 6px 8px;
       font-size: 9px;
       border-top: 1px solid var(--border);
-      background: #060d1a;
+      background: #0b0c0c;
       flex-shrink: 0
     }
 
@@ -566,7 +566,7 @@
     let historyCache = {};
     let eventsCache = [];
 
-    const Stadia_AlidadeSatellite = L.tileLayer('https://tiles.stadiamaps.com/tiles/alidade_satellite/{z}/{x}/{y}{r}.{ext}', {
+    const Stadia_AlidadeSatellite = L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
       minZoom: 0,
       maxZoom: 20,
       attribution: '&copy; CNES, Distribution Airbus DS, © Airbus DS, © PlanetObserver (Contains Copernicus Data) | &copy; <a href="https://www.stadiamaps.com/" target="_blank">Stadia Maps</a> &copy; <a href="https://openmaptiles.org/" target="_blank">OpenMapTiles</a> &copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
@@ -689,7 +689,7 @@
       document.getElementById('s-voos').textContent = String(voos.length);
       list.innerHTML = voos.map(f => {
         const sel = selFlight === f.callsign ? ' sel' : '';
-        return `<div class="frow${sel}" onclick="selectFlight('${f.callsign}')">
+        return `<div class="frow${sel}" id="row-${f.callsign}" onclick="selectFlight('${f.callsign}')">
           <div class="fdot" style="background:${PHASE_COLOR[f.phase] || '#00d4ff'}"></div>
           <div class="finfo">
             <div class="fcs">${f.callsign}</div>
@@ -718,8 +718,91 @@
         </div>
       `);
     }
-
     function renderHistory() {
+  const list = document.getElementById('list');
+  const entries = Object.values(historyCache);
+
+  if (!entries.length) {
+    list.innerHTML = `
+      <div class="frow">
+        <div class="finfo">
+          <div class="froute">Sem histórico carregado</div>
+          <div class="fdet">Selecione um voo na aba Voos primeiro</div>
+        </div>
+      </div>`;
+    setDetail('<div class="dtitle" style="color:var(--muted)">— Histórico —</div>');
+    return;
+  }
+
+  // Lista todos os voos com histórico carregado
+  list.innerHTML = entries.map(item => {
+    const sel = selFlight === item.callsign ? ' sel' : '';
+    const ultimoPonto = item.points?.[0];
+    return `
+      <div class="frow${sel}" onclick="selectFlight('${item.callsign}'); renderHistoryDetail('${item.callsign}')">
+        <div class="fdot" style="background:var(--amber)"></div>
+        <div class="finfo">
+          <div class="fcs">${item.callsign}</div>
+          <div class="froute">${item.points?.length || 0} posições registradas</div>
+          <div class="fdet">Último registro: ${formatHora(ultimoPonto?.ts)}</div>
+        </div>
+      </div>`;
+  }).join('');
+
+  // Se já tem um voo selecionado com histórico, mostrar detalhes
+  if (selFlight && historyCache[selFlight]) {
+    renderHistoryDetail(selFlight);
+  }
+}
+
+function renderHistoryDetail(callsign) {
+  const item = historyCache[callsign];
+  if (!item || !item.points?.length) {
+    setDetail(`<div class="dtitle" style="color:var(--muted)">Sem pontos para ${callsign}</div>`);
+    return;
+  }
+
+  const pontos = item.points;
+  const primeiro = pontos[pontos.length - 1];  // mais antigo (array vem desc do servidor)
+  const ultimo   = pontos[0];                   // mais recente
+
+  setDetail(`
+    <div class="dtitle" style="color:var(--amber)">${callsign} — Histórico</div>
+    <div class="dgrid">
+      <div>
+        <div class="dkey">Pontos registrados</div>
+        <div class="dval">${pontos.length}</div>
+      </div>
+      <div>
+        <div class="dkey">Período</div>
+        <div class="dval">${formatHora(primeiro?.ts)}</div>
+      </div>
+      <div>
+        <div class="dkey">Última posição</div>
+        <div class="dval">${ultimo?.lat?.toFixed(4)}, ${ultimo?.lng?.toFixed(4)}</div>
+      </div>
+      <div>
+        <div class="dkey">Última altitude</div>
+        <div class="dval">${(ultimo?.altitude || 0).toLocaleString()} ft</div>
+      </div>
+      <div>
+        <div class="dkey">Última fase</div>
+        <div class="dval">${ultimo?.phase || '-'}</div>
+      </div>
+      <div>
+        <div class="dkey">Último registro</div>
+        <div class="dval">${formatHora(ultimo?.ts)}</div>
+      </div>
+    </div>
+    <div style="margin-top:8px;font-size:9px;color:var(--muted)">
+      ${pontos.slice(0, 5).map((p, i) =>
+        `<div>#${i+1} · ${p.lat?.toFixed(3)}, ${p.lng?.toFixed(3)} · ${(p.altitude||0).toLocaleString()}ft · ${formatHora(p.ts)}</div>`
+      ).join('')}
+      ${pontos.length > 5 ? `<div style="color:var(--muted)">... e mais ${pontos.length - 5} pontos</div>` : ''}
+    </div>
+  `);
+}
+    /*function renderHistory() {
       const list = document.getElementById('list');
       const entries = Object.values(historyCache || {});
 
@@ -747,7 +830,7 @@
           <div><div class="dkey">Pontos carregados</div><div class="dval">${entries.reduce((sum, item) => sum + (item.points?.length || 0), 0)}</div></div>
         </div>
       `);
-    }
+    }*/
 
     function renderArquitetura() {
       document.getElementById('list').innerHTML = `
@@ -787,8 +870,43 @@
       } catch {
       }
     }
-
     async function carregarHistorico(callsign) {
+  if (!SERVER_HTTP || !callsign) return;
+  try {
+    const resp = await fetch(`${SERVER_HTTP}/historico/${callsign}`);
+    const data = await resp.json();
+
+    // Normaliza qualquer formato que o servidor retorne
+    let points = [];
+    if (Array.isArray(data)) {
+      // Servidor retornou array direto
+      points = data;
+    } else if (Array.isArray(data.points)) {
+      // Servidor retornou { points: [...] }
+      points = data.points;
+    } else if (Array.isArray(data.historico)) {
+      // Servidor retornou { historico: [...] }
+      points = data.historico;
+    } else if (Array.isArray(data.rows)) {
+      // Servidor retornou { rows: [...] }
+      points = data.rows;
+    }
+
+    // Garante que o callsign está sempre presente
+    historyCache[callsign] = {
+      callsign: callsign,
+      points: points
+    };
+
+    if (currentTab === 'hist') {
+      renderHistory();
+      renderHistoryDetail(callsign);
+    }
+  } catch (err) {
+    console.warn('Histórico indisponível para', callsign, err);
+  }
+}
+    /*async function carregarHistorico(callsign) {
       if (!SERVER_HTTP || !callsign) return;
       try {
         const resp = await fetch(`${SERVER_HTTP}/historico/${callsign}`);
@@ -798,7 +916,7 @@
       } catch {
         historyCache = {};
       }
-    }
+    }*/
 
     async function carregarEventos() {
       if (!SERVER_HTTP) return;
@@ -840,15 +958,24 @@
     }
 
     function selectFlight(callsign) {
-      selFlight = callsign;
-      const flight = flights[callsign];
-      renderCurrentPanel();
-      if (flight) {
-        updateFlightDetails(flight);
-        carregarHistorico(callsign);
-      }
-      document.querySelectorAll('.frow').forEach(row => row.classList.remove('sel'));
-    }
+  selFlight = callsign;
+  const flight = flights[callsign];
+
+  // Atualiza visual da lista
+  document.querySelectorAll('.frow').forEach(row => row.classList.remove('sel'));
+  const rowEl = document.getElementById('row-' + callsign);
+  if (rowEl) rowEl.classList.add('sel');
+
+  if (flight) {
+    updateFlightDetails(flight);
+    // Busca histórico e, ao terminar, re-renderiza se estiver na aba hist
+    carregarHistorico(callsign);
+  }
+
+  renderCurrentPanel();
+}
+      //document.querySelectorAll('.frow').forEach(row => row.classList.remove('sel'));
+    //}
 
     async function connect() {
       SERVER_WS = await descobrirServidor();
@@ -898,7 +1025,17 @@
       requestAnimationFrame(animarPrevisaoRotas);
     }
 
-    function setTab(name, el) { currentTab = name; document.querySelectorAll('.tab').forEach(t => t.classList.remove('on')); el.classList.add('on'); renderCurrentPanel(); }
+    //function setTab(name, el) { currentTab = name; document.querySelectorAll('.tab').forEach(t => t.classList.remove('on')); el.classList.add('on'); renderCurrentPanel(); }
+    function setTab(name, el) {
+  currentTab = name;
+  document.querySelectorAll('.tab').forEach(t => t.classList.remove('on'));
+  el.classList.add('on');
+  renderCurrentPanel();
+  // Se abriu a aba de histórico e já tem um voo selecionado, mostrar detalhe
+  if (name === 'hist' && selFlight && historyCache[selFlight]) {
+    renderHistoryDetail(selFlight);
+  }
+}
     function setConn(state, txt) { const b = document.getElementById('conn-badge'); b.className = 'badge ' + state; document.getElementById('conn-txt').textContent = txt; }
     function addLog(topic, msg, cls) { const el = document.getElementById('log'); el.innerHTML = `<div class="le">[${new Date().toLocaleTimeString()}] <b>${topic}</b> ${msg}</div>` + el.innerHTML; }
 

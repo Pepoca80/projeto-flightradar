@@ -3,10 +3,10 @@ const net = require('net');
 const fs = require('fs');
 const app = express();
 
-// Função para ler e atualizar a lista de brokers ativos
+
 function getBrokersAtivos() {
   const config = JSON.parse(fs.readFileSync('./brokers-ativos.json', 'utf8'));
-  // Filtra apenas as chaves onde o valor é true
+  
   return Object.keys(config.brokers).filter(key => config.brokers[key]);
 }
 
@@ -20,11 +20,11 @@ const regioes = [
 
 function verificarSaudeBroker(host) {
   return new Promise((resolve) => {
-    // Verifica se o host solicitado está na lista de ativos atual
+    
     if (!getBrokersAtivos().includes(host)) return resolve(false);
 
     const socket = new net.Socket();
-    socket.setTimeout(1500); // Timeout de 1.5 segundos
+    socket.setTimeout(1500); 
     socket.connect(1883, host);
 
     socket.on('connect', () => { socket.destroy(); resolve(true); });
@@ -37,20 +37,20 @@ app.get('/resolver', async (req, res) => {
   const lat = parseFloat(req.query.lat);
   const lon = parseFloat(req.query.lon);
 
-  // Recarrega a lista de ativos a cada requisição (permite mudanças sem restartar o GeoDNS)
+  
   const ativos = getBrokersAtivos();
 
-  // Encontra a região teórica
+  
   let regiaoPrincipal = regioes.find(r => lat >= r.latMin && lat <= r.latMax && lon >= r.lonMin && lon <= r.lonMax) || regioes[4];
 
-  // 1. Tenta usar o broker da região principal, SE ele estiver na lista de ativos
+ 
   if (ativos.includes(regiaoPrincipal.host)) {
     if (await verificarSaudeBroker(regiaoPrincipal.host)) {
       return res.json({ brokerUrl: `mqtt://${regiaoPrincipal.host}:1883` });
     }
   }
 
-  // 2. Se falhou ou não estava ativo, tenta qualquer um que esteja na lista de ativos
+  
   console.log(`Rota principal (${regiaoPrincipal.host}) indisponível ou desativada. Buscando contingência...`);
 
   for (const hostAtivo of ativos) {
