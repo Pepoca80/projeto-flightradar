@@ -572,7 +572,12 @@
       attribution: '&copy; CNES, Distribution Airbus DS, © Airbus DS, © PlanetObserver (Contains Copernicus Data) | &copy; <a href="https://www.stadiamaps.com/" target="_blank">Stadia Maps</a> &copy; <a href="https://openmaptiles.org/" target="_blank">OpenMapTiles</a> &copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
       ext: 'jpg'
     });
-    const map = L.map('map', { zoomControl: false, attributionControl: true, layers: [Stadia_AlidadeSatellite], worldCopyJump: false }).setView([-14, -51], 4);
+
+    const limitesBrasil = L.latLngBounds(
+  [-35.0, -75.0], // Canto Inferior Esquerdo (Sudoeste)
+  [7.0, -32.0]    // Canto Superior Direito (Nordeste)
+);
+    const map = L.map('map', { zoomControl: false, attributionControl: true, layers: [Stadia_AlidadeSatellite], worldCopyJump: false, maxBounds: limitesBrasil, maxBoundsViscosity: 1.0, minZoom: 4 }).setView([-14, -51], 4);
     L.control.zoom({ position: 'bottomright' }).addTo(map);
 
     const ICON_ROTATION_OFFSET = 315;
