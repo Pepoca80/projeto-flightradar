@@ -574,9 +574,8 @@
     });
 
     const limitesBrasil = L.latLngBounds(
-  [-35.0, -75.0], // Canto Inferior Esquerdo (Sudoeste)
-  [7.0, -32.0]    // Canto Superior Direito (Nordeste)
-);
+  [-35.0, -75.0], 
+  [7.0, -32.0]);    
     const map = L.map('map', { zoomControl: false, attributionControl: true, layers: [Stadia_AlidadeSatellite], worldCopyJump: false, maxBounds: limitesBrasil, maxBoundsViscosity: 1.0, minZoom: 4 }).setView([-14, -51], 4);
     L.control.zoom({ position: 'bottomright' }).addTo(map);
 
@@ -739,7 +738,6 @@
     return;
   }
 
-  // Lista todos os voos com histórico carregado
   list.innerHTML = entries.map(item => {
     const sel = selFlight === item.callsign ? ' sel' : '';
     const ultimoPonto = item.points?.[0];
@@ -754,7 +752,7 @@
       </div>`;
   }).join('');
 
-  // Se já tem um voo selecionado com histórico, mostrar detalhes
+  
   if (selFlight && historyCache[selFlight]) {
     renderHistoryDetail(selFlight);
   }
@@ -768,8 +766,8 @@ function renderHistoryDetail(callsign) {
   }
 
   const pontos = item.points;
-  const primeiro = pontos[pontos.length - 1];  // mais antigo (array vem desc do servidor)
-  const ultimo   = pontos[0];                   // mais recente
+  const primeiro = pontos[pontos.length - 1];  
+  const ultimo   = pontos[0];                   
 
   setDetail(`
     <div class="dtitle" style="color:var(--amber)">${callsign} — Histórico</div>
@@ -807,35 +805,7 @@ function renderHistoryDetail(callsign) {
     </div>
   `);
 }
-    /*function renderHistory() {
-      const list = document.getElementById('list');
-      const entries = Object.values(historyCache || {});
-
-      if (!entries.length) {
-        list.innerHTML = '<div class="frow"><div class="finfo"><div class="froute">Sem histórico carregado</div><div class="fdet">Selecione um voo para consultar</div></div></div>';
-        setDetail('<div class="dtitle" style="color:var(--muted)">— Histórico —</div>');
-        return;
-      }
-
-      list.innerHTML = entries.map(item => `
-        <div class="frow" onclick="selectFlight('${item.callsign}')">
-          <div class="fdot" style="background:var(--amber)"></div>
-          <div class="finfo">
-            <div class="fcs">${item.callsign}</div>
-            <div class="froute">${item.points?.length || 0} pontos</div>
-            <div class="fdet">Último ponto: ${formatHora(item.points?.[0]?.ts)}</div>
-          </div>
-        </div>
-      `).join('');
-
-      setDetail(`
-        <div class="dtitle">Histórico</div>
-        <div class="dgrid">
-          <div><div class="dkey">Voos com histórico</div><div class="dval">${entries.length}</div></div>
-          <div><div class="dkey">Pontos carregados</div><div class="dval">${entries.reduce((sum, item) => sum + (item.points?.length || 0), 0)}</div></div>
-        </div>
-      `);
-    }*/
+    
 
     function renderArquitetura() {
       document.getElementById('list').innerHTML = `
@@ -881,23 +851,23 @@ function renderHistoryDetail(callsign) {
     const resp = await fetch(`${SERVER_HTTP}/historico/${callsign}`);
     const data = await resp.json();
 
-    // Normaliza qualquer formato que o servidor retorne
+    
     let points = [];
     if (Array.isArray(data)) {
-      // Servidor retornou array direto
+      
       points = data;
     } else if (Array.isArray(data.points)) {
-      // Servidor retornou { points: [...] }
+      
       points = data.points;
     } else if (Array.isArray(data.historico)) {
-      // Servidor retornou { historico: [...] }
+      
       points = data.historico;
     } else if (Array.isArray(data.rows)) {
-      // Servidor retornou { rows: [...] }
+      
       points = data.rows;
     }
 
-    // Garante que o callsign está sempre presente
+    
     historyCache[callsign] = {
       callsign: callsign,
       points: points
@@ -911,17 +881,7 @@ function renderHistoryDetail(callsign) {
     console.warn('Histórico indisponível para', callsign, err);
   }
 }
-    /*async function carregarHistorico(callsign) {
-      if (!SERVER_HTTP || !callsign) return;
-      try {
-        const resp = await fetch(`${SERVER_HTTP}/historico/${callsign}`);
-        const data = await resp.json();
-        historyCache = { [callsign]: data };
-        if (currentTab === 'hist') renderHistory();
-      } catch {
-        historyCache = {};
-      }
-    }*/
+    
 
     async function carregarEventos() {
       if (!SERVER_HTTP) return;
@@ -966,21 +926,20 @@ function renderHistoryDetail(callsign) {
   selFlight = callsign;
   const flight = flights[callsign];
 
-  // Atualiza visual da lista
+  
   document.querySelectorAll('.frow').forEach(row => row.classList.remove('sel'));
   const rowEl = document.getElementById('row-' + callsign);
   if (rowEl) rowEl.classList.add('sel');
 
   if (flight) {
     updateFlightDetails(flight);
-    // Busca histórico e, ao terminar, re-renderiza se estiver na aba hist
+    
     carregarHistorico(callsign);
   }
 
   renderCurrentPanel();
 }
-      //document.querySelectorAll('.frow').forEach(row => row.classList.remove('sel'));
-    //}
+      
 
     async function connect() {
       SERVER_WS = await descobrirServidor();
@@ -1030,13 +989,13 @@ function renderHistoryDetail(callsign) {
       requestAnimationFrame(animarPrevisaoRotas);
     }
 
-    //function setTab(name, el) { currentTab = name; document.querySelectorAll('.tab').forEach(t => t.classList.remove('on')); el.classList.add('on'); renderCurrentPanel(); }
+    
     function setTab(name, el) {
   currentTab = name;
   document.querySelectorAll('.tab').forEach(t => t.classList.remove('on'));
   el.classList.add('on');
   renderCurrentPanel();
-  // Se abriu a aba de histórico e já tem um voo selecionado, mostrar detalhe
+ 
   if (name === 'hist' && selFlight && historyCache[selFlight]) {
     renderHistoryDetail(selFlight);
   }
