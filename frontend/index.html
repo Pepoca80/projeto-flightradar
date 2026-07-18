@@ -722,16 +722,28 @@
         </div>
       `);
     }
-    function renderHistory() {
+    function formatDuracao(ms) {
+  if (!ms || ms < 0) return '—';
+  const s = Math.floor(ms / 1000);
+  const h = Math.floor(s / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  const r = s % 60;
+  if (h > 0) return `${h}h ${m}m`;
+  if (m > 0) return `${m}m ${r}s`;
+  return `${r}s`;
+}
+
+function renderHistory() {
   const list = document.getElementById('list');
-  const entries = Object.values(historyCache);
+  const entries = Object.values(historyCache)
+    .sort((a, b) => (b.tDecolou || 0) - (a.tDecolou || 0));
 
   if (!entries.length) {
     list.innerHTML = `
       <div class="frow">
         <div class="finfo">
-          <div class="froute">Sem histórico carregado</div>
-          <div class="fdet">Selecione um voo na aba Voos primeiro</div>
+          <div class="froute">Nenhum voo registrado ainda</div>
+          <div class="fdet">Os voos aparecem aqui ao decolar</div>
         </div>
       </div>`;
     setDetail('<div class="dtitle" style="color:var(--muted)">— Histórico —</div>');
@@ -739,72 +751,86 @@
   }
 
   list.innerHTML = entries.map(item => {
-    const sel = selFlight === item.callsign ? ' sel' : '';
-    const ultimoPonto = item.points?.[0];
+    const emVoo = !item.tPousou;
+    const cor   = emVoo ? 'var(--green)' : 'var(--amber)';
+    const sel   = selFlight === item.callsign ? ' sel' : '';
+    const dur   = emVoo
+      ? formatDuracao(Date.now() - item.tDecolou)
+      : formatDuracao(item.tPousou - item.tDecolou);
     return `
-      <div class="frow${sel}" onclick="selectFlight('${item.callsign}'); renderHistoryDetail('${item.callsign}')">
-        <div class="fdot" style="background:var(--amber)"></div>
+      <div class="frow${sel}" onclick="selecionarHistorico('${item.callsign}')">
+        <div class="fdot" style="background:${cor}"></div>
         <div class="finfo">
-          <div class="fcs">${item.callsign}</div>
-          <div class="froute">${item.points?.length || 0} posições registradas</div>
-          <div class="fdet">Último registro: ${formatHora(ultimoPonto?.ts)}</div>
+          <div class="fcs" style="color:${cor}">${item.callsign}
+            <span style="font-size:8px;font-weight:400;margin-left:4px">${emVoo ? '● EM VOO' : '✓ POUSOU'}</span>
+          </div>
+          <div class="froute">${item.origin || '?'} → ${item.destination || '?'}</div>
+          <div class="fdet">${item.airline || ''} · ${dur}</div>
         </div>
       </div>`;
   }).join('');
 
-  
   if (selFlight && historyCache[selFlight]) {
     renderHistoryDetail(selFlight);
+  } else {
+    setDetail(`
+      <div class="dtitle" style="color:var(--muted)">— Histórico —</div>
+      <div style="font-size:10px;color:var(--muted);margin-top:6px">
+        ${entries.length} voo(s) nesta sessão. Clique para ver detalhes.
+      </div>`);
   }
 }
 
 function renderHistoryDetail(callsign) {
   const item = historyCache[callsign];
-  if (!item || !item.points?.length) {
-    setDetail(`<div class="dtitle" style="color:var(--muted)">Sem pontos para ${callsign}</div>`);
-    return;
-  }
-
-  const pontos = item.points;
-  const primeiro = pontos[pontos.length - 1];  
-  const ultimo   = pontos[0];                   
-
+  if (!item) return;
+  const emVoo = !item.tPousou;
+  const cor   = emVoo ? 'var(--green)' : 'var(--amber)';
+  const dur   = emVoo
+    ? formatDuracao(Date.now() - item.tDecolou)
+    : formatDuracao(item.tPousou - item.tDecolou);
   setDetail(`
-    <div class="dtitle" style="color:var(--amber)">${callsign} — Histórico</div>
+    <div class="dtitle" style="color:${cor}">${item.callsign}
+      <span style="font-size:10px;font-weight:400;color:var(--muted)"> · ${item.airline || ''}</span>
+    </div>
     <div class="dgrid">
       <div>
-        <div class="dkey">Pontos registrados</div>
-        <div class="dval">${pontos.length}</div>
+        <div class="dkey">Origem</div>
+        <div class="dval">${item.origin || '—'}</div>
+        <div style="font-size:9px;color:var(--muted)">${item.originCity || ''}</div>
       </div>
       <div>
-        <div class="dkey">Período</div>
-        <div class="dval">${formatHora(primeiro?.ts)}</div>
+        <div class="dkey">Destino</div>
+        <div class="dval">${item.destination || '—'}</div>
+        <div style="font-size:9px;color:var(--muted)">${item.destCity || ''}</div>
       </div>
       <div>
-        <div class="dkey">Última posição</div>
-        <div class="dval">${ultimo?.lat?.toFixed(4)}, ${ultimo?.lng?.toFixed(4)}</div>
+        <div class="dkey">Decolagem</div>
+        <div class="dval">${formatHora(item.tDecolou)}</div>
       </div>
       <div>
-        <div class="dkey">Última altitude</div>
-        <div class="dval">${(ultimo?.altitude || 0).toLocaleString()} ft</div>
+        <div class="dkey">${emVoo ? 'Status' : 'Pouso'}</div>
+        <div class="dval" style="color:${cor}">
+          ${emVoo ? 'Em voo' : formatHora(item.tPousou)}
+        </div>
       </div>
       <div>
-        <div class="dkey">Última fase</div>
-        <div class="dval">${ultimo?.phase || '-'}</div>
+        <div class="dkey">Duração</div>
+        <div class="dval">${dur}</div>
       </div>
       <div>
-        <div class="dkey">Último registro</div>
-        <div class="dval">${formatHora(ultimo?.ts)}</div>
+        <div class="dkey">Squawk</div>
+        <div class="dval">${item.squawk || '—'}</div>
       </div>
-    </div>
-    <div style="margin-top:8px;font-size:9px;color:var(--muted)">
-      ${pontos.slice(0, 5).map((p, i) =>
-        `<div>#${i+1} · ${p.lat?.toFixed(3)}, ${p.lng?.toFixed(3)} · ${(p.altitude||0).toLocaleString()}ft · ${formatHora(p.ts)}</div>`
-      ).join('')}
-      ${pontos.length > 5 ? `<div style="color:var(--muted)">... e mais ${pontos.length - 5} pontos</div>` : ''}
-    </div>
-  `);
+    </div>`);
 }
+
+function selecionarHistorico(callsign) {
+  selFlight = callsign;
+  document.querySelectorAll('.frow').forEach(r => r.classList.remove('sel'));
+  renderHistory();
+}
+   
     
 
     function renderArquitetura() {
@@ -845,42 +871,11 @@ function renderHistoryDetail(callsign) {
       } catch {
       }
     }
-    async function carregarHistorico(callsign) {
-  if (!SERVER_HTTP || !callsign) return;
-  try {
-    const resp = await fetch(`${SERVER_HTTP}/historico/${callsign}`);
-    const data = await resp.json();
-
-    
-    let points = [];
-    if (Array.isArray(data)) {
-      
-      points = data;
-    } else if (Array.isArray(data.points)) {
-      
-      points = data.points;
-    } else if (Array.isArray(data.historico)) {
-      
-      points = data.historico;
-    } else if (Array.isArray(data.rows)) {
-      
-      points = data.rows;
-    }
-
-    
-    historyCache[callsign] = {
-      callsign: callsign,
-      points: points
-    };
-
-    if (currentTab === 'hist') {
-      renderHistory();
-      renderHistoryDetail(callsign);
-    }
-  } catch (err) {
-    console.warn('Histórico indisponível para', callsign, err);
-  }
+    function carregarHistorico(callsign) {
+  
+  if (currentTab === 'hist') renderHistory();
 }
+    
     
 
     async function carregarEventos() {
@@ -956,17 +951,56 @@ function renderHistoryDetail(callsign) {
           renderCurrentPanel();
         }
         if (msg.type === 'TELEMETRIA') {
-          const f = msg.payload;
-          flights[f.callsign] = f;
-          updateMarker(f);
-          updateOverviewCounts();
-          if (currentTab === 'voos') renderFlightsList();
-          if (selFlight === f.callsign) updateFlightDetails(f);
-        }
+  const f = msg.payload;
+  flights[f.callsign] = f;
+  updateMarker(f);
+  updateOverviewCounts();
+  if (currentTab === 'voos') renderFlightsList();
+  if (selFlight === f.callsign && currentTab == 'voos') updateFlightDetails(f);
+
+  // Registra no histórico na primeira telemetria recebida do voo
+  if (!historyCache[f.callsign]) {
+    historyCache[f.callsign] = {
+      callsign:    f.callsign,
+      airline:     f.airline     || '—',
+      origin:      f.origin      || '—',
+      destination: f.destination || '—',
+      originCity:  f.originCity  || '',
+      destCity:    f.destCity    || '',
+      squawk:      f.squawk      || '—',
+      tDecolou:    f.ts          || Date.now(),
+      tPousou:     null,
+    };
+  }
+}
+       
         if (msg.type === 'EVENTO') {
-          addLog('evento', `${msg.payload.evento || ''} ${msg.payload.callsign || ''}`, 'y');
-          carregarEventos();
-        }
+  const ev = msg.payload;
+  addLog('evento', `${ev.evento || ''} ${ev.callsign || ''}`, 'y');
+
+  if (ev.evento === 'decolou' && ev.callsign && !historyCache[ev.callsign]) {
+    historyCache[ev.callsign] = {
+      callsign:    ev.callsign,
+      airline:     ev.airline     || '—',
+      origin:      ev.origin      || '—',
+      destination: ev.destination || '—',
+      originCity:  ev.originCity  || '',
+      destCity:    ev.destCity    || '',
+      squawk:      ev.squawk      || '—',
+      tDecolou:    ev.ts          || Date.now(),
+      tPousou:     null,
+    };
+  }
+
+  if ((ev.evento === 'pousou' || ev.evento === 'desconectou') && ev.callsign) {
+    if (historyCache[ev.callsign]) {
+      historyCache[ev.callsign].tPousou = ev.ts || Date.now();
+    }
+  }
+
+  if (currentTab === 'hist') renderHistory();
+}
+       
       };
       ws.onclose = () => { setConn('err', 'DESCONECTADO'); setTimeout(connect, 3000); };
     }

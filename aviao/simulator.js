@@ -1,17 +1,4 @@
 'use strict';
-/**
- * Usp-airline — Simulador de Avião (MQTT Publisher)
- *
- * Cada instância deste processo representa um avião independente.
- * Configuração via variáveis de ambiente.
- *
- * Conceitos de SD aplicados:
- *  - Publisher desacoplado: não conhece subscribers
- *  - QoS 0 para telemetria (fire-and-forget — dados antigos sem valor)
- *  - QoS 1 para eventos de ciclo de vida (garantia de entrega)
- *  - Reconexão com backoff exponencial (tolerância a falhas do broker)
- *  - Estado local mínimo (stateless em relação ao sistema)
- */
 
 const mqtt = require('mqtt');
 
