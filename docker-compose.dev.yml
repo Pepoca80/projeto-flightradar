@@ -1,5 +1,6 @@
 # ════════════════════════════════════════════════════════════════════
-#  usp-airline — Ambiente de Desenvolvimento
+#  usp-airlines — Ambiente de Desenvolvimento
+#  Versão do projeto voltada para testes e demonstrações, usa menos RAM.
 # ════════════════════════════════════════════════════════════════════
 
 name: usp-airline-dev

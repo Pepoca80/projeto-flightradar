@@ -1,15 +1,14 @@
-#!/usr/bin/env bash
-# ─────────────────────────────────────────────────────────────────────────────
-#  usp-airline — Injeção de Latência de Rede
+#  usp-airlines — Injeção de Latência de Rede
 #
 #  Simula conexões de rádio intermitentes entre aviões e broker.
 #  Usa tc (traffic control) do Linux para adicionar delay e packet loss.
+#
+#  Funciona somente em ambiente wsl ou ambiente Linux nativo.
 #
 #  Uso:
 #    ./scripts/network-delay.sh inject   # injeta 500ms + 10% perda
 #    ./scripts/network-delay.sh remove   # remove restrições
 #    ./scripts/network-delay.sh status   # mostra configuração atual
-# ─────────────────────────────────────────────────────────────────────────────
 
 ACTION=${1:-inject}
 DELAY=${2:-500ms}

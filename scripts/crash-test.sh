@@ -1,10 +1,9 @@
-#!/usr/bin/env bash
-# ─────────────────────────────────────────────────────────────────────────────
-#  usp-airline — Teste de Tolerância a Falhas (Crash Failures)
+#  usp-airlines — Teste de Tolerância a Falhas (Crash Failures)
 #
 #  Derruba containers de aviões aleatoriamente e verifica que o sistema
 #  continua funcionando (broker, servidor e frontend não caem).
-# ─────────────────────────────────────────────────────────────────────────────
+#
+#  Funciona somente em ambiente wsl ou ambiente Linux nativo.
 
 echo "════════════════════════════════════════════════════════"
 echo " usp-airline — Teste de Crash Failures"

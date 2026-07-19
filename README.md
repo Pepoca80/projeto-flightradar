@@ -1,4 +1,4 @@
-# ✈ usp-airline — Sistema Distribuído de Rastreamento de Aviões
+# ✈ usp-airlines — Sistema Distribuído de Rastreamento de Aviões
 ### Projeto de Sistemas Distribuídos · MQTT · Docker · Leaflet · Cassandra
 
 ---

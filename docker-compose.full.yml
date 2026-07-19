@@ -1,5 +1,5 @@
 # ═══════════════════════════════════════════════════════════════════════════════
-#  Usp-airline — Sistema Distribuído de Rastreamento de Aviões
+#  Usp-airlines — Sistema Distribuído de Rastreamento de Aviões
 #
 #  Arquitetura:
 #    aviões (publishers) → Mosquitto MQTT (broker) → servidor (subscriber+WS) → frontend
@@ -19,6 +19,8 @@
 #
 #  Uso:
 #    docker-compose up --build
+#
+#  Uso de scripts:
 #    ./scripts/add-aviao.sh LA9999 LATAM LA GRU POA
 #    ./scripts/crash-test.sh          (testa tolerância a falhas)
 #    ./scripts/network-delay.sh       (injeta latência)
