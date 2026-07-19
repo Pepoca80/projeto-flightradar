@@ -1,13 +1,13 @@
-#  usp-airlines — Teste de Tolerância a Falhas (Crash Failures)
+#  USP Airlines — Teste de Tolerância a Falhas (Crash Failures)
 #
 #  Derruba containers de aviões aleatoriamente e verifica que o sistema
 #  continua funcionando (broker, servidor e frontend não caem).
 #
 #  Funciona somente em ambiente wsl ou ambiente Linux nativo.
 
-echo "════════════════════════════════════════════════════════"
-echo " usp-airline — Teste de Crash Failures"
-echo "════════════════════════════════════════════════════════"
+echo "────────────────────────────────────────────────────────"
+echo " USP Airlines — Teste de Crash Failures"
+echo "────────────────────────────────────────────────────────"
 
 check_server() {
   curl -sf http://localhost:4001/status > /dev/null 2>&1
@@ -73,8 +73,8 @@ for e in descon[:5]:
 " 2>/dev/null || echo "    (sem eventos ou erro de parse)"
 
 echo ""
-echo "════════════════════════════════════════════════════════"
+echo "────────────────────────────────────────────────────────"
 echo " Teste concluído."
 echo " Os containers derrubados têm restart:on-failure e"
 echo " serão reiniciados automaticamente pelo Docker."
-echo "════════════════════════════════════════════════════════"
+echo "────────────────────────────────────────────────────────"

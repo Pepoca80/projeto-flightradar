@@ -1,4 +1,4 @@
-#  usp-airlines — Injeção de Latência de Rede
+#  USP Airlines — Injeção de Latência de Rede
 #
 #  Simula conexões de rádio intermitentes entre aviões e broker.
 #  Usa tc (traffic control) do Linux para adicionar delay e packet loss.
@@ -15,10 +15,11 @@ DELAY=${2:-500ms}
 JITTER=${3:-100ms}
 LOSS=${4:-10}
 
-echo "════════════════════════════════════════════════════════"
-echo " usp-airline — Injeção de Latência de Rede"
+
+echo "────────────────────────────────────────────────────────"
+echo " USP Airlines — Injeção de Latência de Rede"
 echo " Ação: $ACTION | Delay: $DELAY±$JITTER | Perda: ${LOSS}%"
-echo "════════════════════════════════════════════════════════"
+echo "────────────────────────────────────────────────────────"
 
 AVIOES=$(docker ps --filter name=usp-airline-aviao- --format "{{.Names}}" | sort)
 

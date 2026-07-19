@@ -1,5 +1,22 @@
 'use strict';
 
+/**
+ * USP Airlines — simulator.js
+ * Simulador de avião que publica telemetria via MQTT.
+ *
+ * Responsabilidade:
+ *  simular um voo entre dois aeroportos brasileiros, atualizar a posição,
+ *  altitude, velocidade e fase do voo, e publicar esses dados no broker.
+ *
+ * Fluxo principal:
+ *  1. Lê a configuração do voo por variáveis de ambiente.
+ *  2. Consulta o GeoDNS para escolher o broker MQTT regional.
+ *  3. Conecta ao broker, publica a decolagem e inicia os ticks.
+ *  4. A cada tick, atualiza a física do voo e envia telemetria.
+ *  5. Quando pousa, publica o evento final e encerra o processo.
+ *  6. Se o broker cair, consulta o GeoDNS de novo e reconecta.
+ */
+
 const mqtt = require('mqtt');
 
 // ─── Configuração via ambiente ────────────────────────────────────────────────
@@ -14,7 +31,7 @@ const CFG = {
   clientId:    `aviao_${process.env.CALLSIGN || 'XX0000'}_${Date.now()}`,
 };
 
-// ─── Aeroportos brasileiros (coordenadas reais) ───────────────────────────────
+// ─── Aeroportos Brasileiros (Coordenadas Reais) ───────────────────────────────
 const AIRPORTS = {
   GRU: { lat: -23.4356, lng: -46.4731, city: 'São Paulo',       name: 'Guarulhos'      },
   CGH: { lat: -23.6261, lng: -46.6564, city: 'São Paulo',       name: 'Congonhas'      },
@@ -37,19 +54,29 @@ const AIRPORTS = {
 };
 
 // ─── Estado do voo ────────────────────────────────────────────────────────────
+// Origem e destino do voo; se a sigla não existir, usa um aeroporto padrão.
 const orig = AIRPORTS[CFG.origin]      || AIRPORTS.GRU;
 const dest = AIRPORTS[CFG.destination] || AIRPORTS.GIG;
 
+// dLng = diferença de longitude entre destino e origem.
+// dLat = diferença de latitude entre destino e origem.
 const dLng = dest.lng - orig.lng;
 const dLat = dest.lat - orig.lat;
+
+// Heading = rumo inicial do voo, calculado a partir da diferença entre os pontos.
 const heading = ((Math.atan2(dLng, dLat) * 180 / Math.PI) + 360) % 360;
 
+// distKm = distância aproximada em quilômetros entre origem e destino.
 const distKm = Math.sqrt(dLat * dLat + dLng * dLng) * 111;
 
+// CRUISE_ALT = altitude de cruzeiro simulada do voo, em pés.
+// CRUISE_SPEED = velocidade de cruzeiro simulada, em km/h.
+// SQUAWK = código transponder simulando o identificador de radar.
 const CRUISE_ALT   = Math.round(28000 + Math.random() * 13000);
 const CRUISE_SPEED = Math.round(750   + Math.random() * 130);
 const SQUAWK       = Math.floor(1000  + Math.random() * 6777).toString();
 
+// PROGRESS_STEP = avanço estimado do voo a cada tick com base no tempo e na distância.
 const PROGRESS_STEP = (CFG.updateMs / 1000) / (distKm / CRUISE_SPEED * 3600);
 
 const state = {
@@ -64,10 +91,16 @@ const state = {
   squawk:       SQUAWK,
 };
 
+// Interpola entre dois valores; usada para posicionar o avião ao longo da rota.
 function lerp(a, b, t) { return a + (b - a) * t; }
+
+// Gera um valor aleatório dentro de um intervalo.
 function rand(min, max) { return min + Math.random() * (max - min); }
+
+// Limita um valor entre mínimo e máximo.
 function clamp(v, min, max) { return Math.max(min, Math.min(max, v)); }
 
+// Atualiza a física do voo, alterando fase, posição, altitude, velocidade e rumo.
 function updatePhysics() {
   state.progress = Math.min(1, state.progress + PROGRESS_STEP * rand(0.85, 1.15));
 
@@ -113,6 +146,7 @@ function updatePhysics() {
 }
 
 // ─── Tópicos MQTT ─────────────────────────────────────────────────────────────
+// Define os tópicos que este avião publica e assina no broker MQTT.
 const TOPICS = {
   telemetria: `voo/${CFG.iataAirline}/${CFG.callsign}/telemetria`,
   evento:     `voo/eventos`,
@@ -121,9 +155,12 @@ const TOPICS = {
 };
 
 // ─── Conexão MQTT dinâmica via GeoDNS ─────────────────────────────────────────
+// tickInterval guarda o timer do loop de simulação.
 let tickInterval = null;
+// client guarda a conexão MQTT ativa do avião.
 let client = null;
 
+// Consulta o GeoDNS para descobrir qual broker MQTT deve atender este avião.
 async function obterRotaGeoDns() {
   try {
     const resposta = await fetch(`${CFG.geoDnsUrl}/resolver?lat=${state.lat}&lon=${state.lng}`);
@@ -135,6 +172,7 @@ async function obterRotaGeoDns() {
   }
 }
 
+// Inicia ou reinicia a conexão MQTT usando a rota retornada pelo GeoDNS.
 async function iniciarConexaoMqtt() {
   if (client) {
     client.end();
@@ -170,6 +208,7 @@ async function iniciarConexaoMqtt() {
     },
   });
 
+  // Quando conecta, anuncia decolagem, publica telemetria inicial e inicia os ticks.
   client.on('connect', () => {
     console.log(`[${CFG.callsign}] ✓ Conectado ao broker | Rota: ${CFG.origin} para ${CFG.destination} | ${Math.round(distKm)}km`);
 
@@ -196,6 +235,7 @@ async function iniciarConexaoMqtt() {
     tickInterval = setInterval(tick, CFG.updateMs);
   });
 
+  // Recebe comandos remotos enviados ao tópico de controle do avião.
   client.on('message', (topic, message) => {
     if (topic === TOPICS.controle) {
       try {
@@ -205,6 +245,7 @@ async function iniciarConexaoMqtt() {
     }
   });
 
+  // Se o broker cair, interrompe o loop e pede uma nova rota ao GeoDNS.
   client.on('offline', () => {
     console.warn(`[${CFG.callsign}] Broker offline. Solicitando rota alternativa ao GeoDNS em 3 segundos`);
     if (tickInterval) {
@@ -219,6 +260,7 @@ async function iniciarConexaoMqtt() {
   });
 }
 
+// Publica qualquer mensagem JSON em um tópico MQTT.
 function publish(topic, payload, qos = 0, retain = false) {
   if (!client || !client.connected) return;
   client.publish(topic, JSON.stringify(payload), { qos, retain }, (err) => {
@@ -226,6 +268,7 @@ function publish(topic, payload, qos = 0, retain = false) {
   });
 }
 
+// Monta e publica o pacote de telemetria atual do avião.
 function publishTelemetria(retain = false) {
   const payload = {
     callsign:      CFG.callsign,
@@ -250,6 +293,7 @@ function publishTelemetria(retain = false) {
   publish(TOPICS.telemetria, payload, 0, retain);
 }
 
+// Executa um ciclo da simulação: atualiza o voo, publica telemetria e verifica pouso.
 function tick() {
   updatePhysics();
   publishTelemetria(false);
@@ -275,7 +319,7 @@ function tick() {
   }
 }
 
-// ─── Graceful shutdown ────────────────────────────────────────────────────────
+// Encerra o avião de forma segura, publicando evento de emergência antes de sair.
 process.on('SIGTERM', () => {
   console.log(`[${CFG.callsign}] SIGTERM — publicando emergência e encerrando.`);
   publish(TOPICS.evento, {

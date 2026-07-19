@@ -1,111 +1,102 @@
-# ✈ usp-airlines — Sistema Distribuído de Rastreamento de Aviões
-### Projeto de Sistemas Distribuídos · MQTT · Docker · Leaflet · Cassandra
+# ✈ USP Airlines — Sistema Distribuído de Rastreamento de Aviões
+
+### Projeto de Sistemas Distribuídos · MQTT · Docker · Leaflet · Cassandra · GeoDNS
 
 ---
 
 ## Arquitetura
 
-```
-┌──────────────────────────────────────────────────────────────────────────┐
-│                        Docker Network: usp-airline-net                  │
-│                                                                          │
-│  ┌─────────────────┐  PUBLISH QoS 0/1  ┌──────────────────────────────┐ │
-│  │  usp-airline-aviao-LA3105 │ ─────────────────► │                              │ │
-│  │  usp-airline-aviao-G31820 │ ─────────────────► │   Eclipse Mosquitto MQTT     │ │
-│  │  usp-airline-aviao-AD4490 │ ─────────────────► │   (middleware real)          │ │
-│  │  usp-airline-aviao-...    │ ─────────────────► │   porta 1883 (MQTT)          │ │
-│  └─────────────────┘                   │   porta 9001 (WS)            │ │
-│   1 container = 1 avião                │   wildcards: voo/+/+/tel...  │ │
-│   Reconexão com backoff                │   retained messages          │ │
-│   Last Will Testament                  │   keepalive 60s              │ │
-│                                        └──────────────┬───────────────┘ │
-│                                                        │ SUBSCRIBE       │
-│                                                        ▼                 │
-│                                        ┌───────────────────────────────┐ │
-│                                        │  Servidor de Aplicação        │ │
-│                                        │  (Node.js)                    │ │
-│                                        │  · MQTT subscriber            │ │
-│                                        │  · Estado em memória          │ │
-│                                        │  · WebSocket fan-out          │ │
-│                                        │  · REST API                   │ │
-│                                        │  · Persiste no Cassandra      │ │
-│                                        └──────┬──────────┬─────────────┘ │
-│                                               │ WS       │ SQL           │
-│                                               ▼          ▼               │
-│                                   ┌──────────────┐  ┌──────────────┐    │
-│                                   │  Frontend    │  │  Cassandra   │    │
-│                                   │  (Nginx)     │  │  telemetria  │    │
-│                                   │  Leaflet map │  │  eventos     │    │
-│                                   └──────────────┘  └──────────────┘    │
-└──────────────────────────────────────────────────────────────────────────┘
-```
+O sistema é dividido em **5 regiões geográficas do Brasil**: Sul, Sudeste, Norte, Nordeste e Centro-Oeste. Cada região tem seu broker MQTT, seu servidor de aplicação e seu nó Cassandra. Um serviço de **GeoDNS** escolhe dinamicamente o broker regional mais adequado e faz failover quando necessário.
 
----
+![Diagrama da arquitetura](assets/diagrama_arquitetura.png)
+
+### Como o GeoDNS funciona
+
+Cada avião e cada servidor de aplicação consulta `GET /resolver?lat=..&lon=..` no GeoDNS. O serviço mapeia a coordenada para uma das 5 regiões, verifica se o broker daquela região está ativo em `brokers-ativos.json` e valida a saúde da conexão via TCP na porta `1883`. Se a região principal estiver indisponível, o GeoDNS faz failover para o próximo broker ativo disponível.
 
 ## Modelos de Sistemas Distribuídos Aplicados
 
-| Modelo | Onde se manifesta |
-|--------|-------------------|
-| **Pub/Sub baseado em eventos** | Aviões publicam, servidor e frontend assinam sem se conhecerem |
-| **Cliente-Servidor Multicamadas** | Frontend → Servidor → Banco (3 camadas clássicas) |
-| **Redes de Sensores** | Cada container avião age como nó sensor autônomo |
-| **Middleware de mensageria** | Mosquitto abstrai transporte, roteamento e QoS |
-
----
+| Modelo | Aplicação no projeto |
+|---|---|
+| Pub/Sub baseado em eventos | Aviões publicam; servidores e frontend assinam sem acoplamento direto |
+| Cliente-servidor multicamadas | Frontend → Servidor → Banco, com instâncias por região |
+| Redes de sensores | Cada container de avião age como um nó autônomo |
+| Middleware de mensageria | Mosquitto abstrai transporte, roteamento e QoS |
+| Descoberta de serviço | GeoDNS resolve dinamicamente qual broker usar |
+| Replicação de dados | Cassandra é usado por região no modo completo |
 
 ## Tópicos MQTT e QoS
 
 | Tópico | Publisher | QoS | Retained | Uso |
-|--------|-----------|-----|----------|-----|
-| `voo/{airline}/{callsign}/telemetria` | Avião | 0 (fire-and-forget) | Sim | Posição em tempo real |
-| `voo/eventos` | Avião | 1 (entrega garantida) | Não | Decolagem, pouso, emergência |
-| `controle/{callsign}` | Operador | 1 | Não | Comandos remotos |
+|---|---|---:|---|---|
+| `voo/{iata_airline}/{callsign}/telemetria` | Avião | 0 | Sim | Posição em tempo real |
+| `voo/eventos` | Avião | 1 | Não | Decolagem, pouso, emergência e desconexão |
+| `controle/{callsign}` | Operador | 1 | Não | Comandos remotos ao avião |
 
-**Por que QoS 0 para telemetria?**
-Posição de 2 segundos atrás não tem valor. Overhead de ACK supera o benefício.
+Cada servidor regional assina `voo/+/+/telemetria` com QoS 0 e `voo/eventos` com QoS 1 no seu broker local.
 
-**Por que QoS 1 para eventos?**
-Eventos de ciclo de vida (decolou/pousou) não são redundantes — perder um causa inconsistência.
+### Justificativa das escolhas
 
----
+- QoS 0 é suficiente para telemetria, porque dados antigos perdem valor rapidamente.
+- QoS 1 é usado para eventos porque perder um evento de ciclo de vida gera inconsistência.
+- Retained messages ajudam novos clientes a enxergar o estado atual imediatamente.
 
-## Tutorial para Executar o Projeto
+## Como Executar o Projeto
+
+O projeto tem **dois modos de execução**, escolhidos pelo arquivo `docker-compose` usado no comando.
 
 ### Pré-requisitos
+
 - Docker 24+
 - Docker Compose v2
 
+### Modo `dev`
+
+Sobe apenas a região Sudeste, além do GeoDNS, frontend e os aviões.
+
 ```bash
-# 1. Clonar / entrar no diretório
-cd usp-airline
-
-# 2. Subir tudo
-docker compose up --build
-
-# 3. Acessar
-# Mapa:    http://localhost:3000
-# API:     http://localhost:4000/status
-# MQTT local por região:
-#   sul:          mqtt://localhost:1891
-#   sudeste:      mqtt://localhost:1892
-#   norte:        mqtt://localhost:1893
-#   nordeste:     mqtt://localhost:1894
-#   centro-oeste: mqtt://localhost:1895
+docker compose -f docker-compose.dev.yml up --build
 ```
 
----
+### Modo `full`
 
-## REST API
+Sobe as 5 regiões, com broker, servidor e Cassandra próprios em cada uma.
+
+```bash
+docker compose -f docker-compose.full.yml up --build
+```
+
+### Acesso
+
+Depois de subir os containers, acesse:
+
+| Serviço | Endereço |
+|---|---|
+| Frontend | `http://localhost:3000` |
+| GeoDNS | `http://localhost:8080` |
+| API da região Sudeste no modo `dev` | `http://localhost:4002` |
+
+No modo `full`, cada região expõe sua própria porta:
+
+| Região | Porta REST | Porta MQTT |
+|---|---|---|
+| Sul | `http://localhost:4001` | `mqtt://localhost:1891` |
+| Sudeste | `http://localhost:4002` | `mqtt://localhost:1892` |
+| Norte | `http://localhost:4003` | `mqtt://localhost:1893` |
+| Nordeste | `http://localhost:4004` | `mqtt://localhost:1894` |
+| Centro-Oeste | `http://localhost:4005` | `mqtt://localhost:1895` |
+
+Se abrir o sistema por um hostname da rede em vez de `localhost`, use esse mesmo hostname no navegador. O frontend usa o hostname atual para falar com o GeoDNS e com o servidor regional.
+
+### API REST
 
 | Endpoint | Descrição |
-|----------|-----------|
-| `GET /status` | Métricas do servidor (voos, msgs, uptime, memória) |
+|---|---|
+| `GET /status` | Métricas do servidor: voos, mensagens, WebSocket, uptime e memória |
 | `GET /voos` | Estado atual de todos os voos em memória |
 | `GET /voos/{callsign}` | Estado de um voo específico |
-| `GET /historico/{callsign}` | Últimas 100 posições do banco |
+| `GET /historico/{callsign}` | Últimas 100 posições persistidas no Cassandra |
 | `GET /eventos` | Últimos 50 eventos de ciclo de vida |
-
----
 
 ## Scripts de Teste
 
@@ -115,120 +106,66 @@ chmod +x scripts/*.sh
 # Adicionar avião dinamicamente
 ./scripts/add-aviao.sh LA9999 LATAM LA GRU POA 1000
 
-# Teste de crash failures (derruba 3 aviões aleatórios)
+# Teste de crash failures
 ./scripts/crash-test.sh
 
-# Injetar latência de rede (simula rádio instável)
+# Injetar latência de rede
 ./scripts/network-delay.sh inject 500ms 100ms 10
 ./scripts/network-delay.sh remove
 ./scripts/network-delay.sh status
 ```
 
----
-
-## Testes de Sistemas Distribuídos
-
-### 1. Crash Failures
-```bash
-# Matar um avião abruptamente
-docker kill usp-airline-aviao-LA3105
-
-# Observar:
-# - Broker recebe o Last Will Testament do avião
-# - Servidor remove o voo do estado em memória
-# - Frontend exibe evento "desconectou" no log
-# - Container reinicia automaticamente (restart: on-failure)
-docker logs -f usp-airline-servidor
-```
-
-### 2. Falha do Broker
-```bash
-docker stop usp-airline-broker
-# Aviões: tentam reconectar com backoff exponencial
-# Servidor: idem — estado em memória preservado
-# Frontend: exibe "DESCONECTADO"
-
-docker start usp-airline-broker
-# Sistema se recupera automaticamente
-```
-
-### 3. Latência de Rede
-```bash
-./scripts/network-delay.sh inject 1000ms 200ms 20
-# Observar timestamps defasados no mapa
-# Mensagens com delay visível no log pub/sub
-./scripts/network-delay.sh remove
-```
-
-### 4. Flash Crowd (múltiplos clientes)
-```bash
-# Abrir 10+ abas do browser em http://localhost:3000
-# Verificar: http://localhost:4000/status -> wsClients
-# O servidor deve atender todos via fan-out sem degradar
-```
-
-### 5. Snapshot para novos clientes
-```bash
-# Abrir o mapa depois de 1 minuto
-# Todos os aviões aparecem imediatamente (retained messages + snapshot WS)
-# Não precisa esperar o próximo tick de cada avião
-```
-
----
-
 ## Estrutura do Projeto
 
-```
-usp-airline/
-├── broker/
-│   ├── mosquitto.conf    # Configuração do Eclipse Mosquitto
-│   └── Dockerfile
+```text
+projeto-flightradar/
 ├── aviao/
-│   ├── simulator.js      # Publisher MQTT com física de voo
+│   ├── simulator.js
 │   ├── package.json
-│   └── Dockerfile
-├── servidor/
-│   ├── server.js         # MQTT subscriber + WS + REST + Cassandra
-│   ├── package.json
-│   └── Dockerfile
-├── frontend/
-│   ├── index.html        # Leaflet + WebSocket subscriber
-│   ├── nginx.conf
 │   └── Dockerfile
 ├── banco/
-│   └── init.sql          # Schema Cassandra de referência
+│   └── init.sql
+├── broker/
+│   ├── mosquitto.conf
+│   ├── mosquitto.dev.conf
+│   └── Dockerfile
+├── frontend/
+│   ├── index.html
+│   ├── nginx.conf
+│   └── Dockerfile
+├── geodns/
+│   ├── server.js
+│   ├── package.json
+│   └── brokers-ativos.json
 ├── scripts/
-│   ├── add-aviao.sh      # Adicionar avião dinamicamente
-│   ├── crash-test.sh     # Teste de tolerância a falhas
-│   └── network-delay.sh  # Injeção de latência (tc netem)
-├── docker-compose.yml
+│   ├── add-aviao.sh
+│   ├── crash-test.sh
+│   └── network-delay.sh
+├── servidor/
+│   ├── server.js
+│   ├── package.json
+│   └── Dockerfile
+├── docker-compose.dev.yml
+├── docker-compose.full.yml
+├── assets/
+│   └── diagrama_arquitetura.png
 └── README.md
 ```
 
----
+## Decisões de projeto
 
-## Decisões de Projeto (Justificativas Acadêmicas)
+| Decisão | Motivo |
+|---|---|
+| Mosquitto como broker real | Mantém o projeto aderente ao uso de middleware de mensageria |
+| GeoDNS por região | Permite roteamento por localização e failover |
+| Estado em memória no servidor | Reduz dependência do banco para o estado corrente |
+| Persistência amostrada | Evita escrita excessiva sem perder histórico útil |
+| Retained messages | Novos clientes recebem contexto imediatamente |
+| Last Will Testament | Notifica falhas de forma automática |
 
-| Decisão | Justificativa |
-|---------|---------------|
-| Mosquitto como broker | Middleware real, não simulado. MQTT é o protocolo padrão de telemetria IoT |
-| QoS 0 para telemetria | Dado temporal sem valor retrospectivo; overhead de ACK desnecessário |
-| Estado em memória no servidor | Reconstituível em segundos; evita single point of failure no banco |
-| Persistência amostrada (1/10 ticks) | Evita write amplification; histórico útil sem sobrecarregar o banco |
-| Last Will Testament | Notificação automática de falha sem coordenação explícita |
-| Retained messages | Novos subscribers recebem estado atual imediatamente |
-| Stateless broker | Facilita restart sem perda de consistência do sistema |
-| Sem eleição de líder | Broker centralizado intencional no escopo do projeto |
+## Notas técnicas
 
----
+- O servidor cria as tabelas em Cassandra na inicialização, usando o esquema de `banco/init.sql` como referência.
+- O frontend exibe um snapshot inicial via WebSocket e depois acompanha eventos em tempo real.
+- O projeto foi pensado para rodar localmente com Docker Compose, sem depender de serviços externos.
 
-## Evolução para Produção
-
-```
-Atual (projeto):          Produção:
-Mosquitto único     →     EMQX Cluster (HA) ou HiveMQ
-PostgreSQL          →     Cassandra (modelo wide-column por callsign)
-Node.js single      →     Cluster mode + load balancer
-Docker local        →     Kubernetes (HPA por número de voos)
-Dados simulados     →     OpenSky Network API / receptores SDR
-```

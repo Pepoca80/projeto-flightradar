@@ -1,7 +1,8 @@
-# ════════════════════════════════════════════════════════════════════
-#  usp-airlines — Ambiente de Desenvolvimento
-#  Versão do projeto voltada para testes e demonstrações, usa menos RAM.
-# ════════════════════════════════════════════════════════════════════
+# ─────────────────────────────────────────────────────────────────────────
+#  USP Airlines — Ambiente de Desenvolvimento
+#  Versão do projeto voltada para testes e demonstrações, pois o projeto completo
+#  é muito pesado para rodar em máquinas com pouca memória RAM.
+# ─────────────────────────────────────────────────────────────────────────
 
 name: usp-airline-dev
 
@@ -16,7 +17,7 @@ volumes:
 
 services:
 
-  # ── GEODNS ──
+  # ── GEODNS ──────────────────────────────────────────────────────────────
   geodns:
     build: ./geodns
     container_name: usp-airline-geodns
@@ -26,7 +27,7 @@ services:
       - usp-airline-net
     restart: unless-stopped
 
-# ── REGIÃO SUDESTE ──
+# ── REGIÃO SUDESTE ─────────────────────────────────────────────────────────
   broker_sudeste:
     build: ./broker
     container_name: usp-airline-broker-sudeste
@@ -73,7 +74,7 @@ services:
       banco_sudeste: { condition: service_started }
     restart: unless-stopped
 
-  # ── FRONTEND ──
+  # ── FRONTEND ──────────────────────────────────────────────────────────────
   frontend:
     build: ./frontend
     container_name: usp-airline-frontend
@@ -85,7 +86,7 @@ services:
       - servidor_sudeste
     restart: unless-stopped
 
-  # ── AVIÕES ──────────────────────────────────────────────────────────
+  # ── AVIÕES ───────────────────────────────────────────────────────────────
   aviao-la3105:
     build: ./aviao
     container_name: usp-airline-aviao-LA3105

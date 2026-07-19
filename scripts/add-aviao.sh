@@ -1,5 +1,5 @@
 # ─────────────────────────────────────────────────────────────────────────────
-#  usp-airlines — Adicionar avião dinamicamente
+#  USP Airlines — Adicionar avião dinamicamente
 #  Uso: ./scripts/add-aviao.sh CALLSIGN AIRLINE IATA ORIGIN DESTINATION [MS]
 #  Ex:  ./scripts/add-aviao.sh LA9999 LATAM LA GRU POA 1000
 # ─────────────────────────────────────────────────────────────────────────────

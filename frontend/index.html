@@ -542,12 +542,15 @@
 
   <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
   <script>
+    // Usado só em testes para forçar uma posição fixa e não depender da geolocalização.
     const COORDENADAS_TESTE = null;
 
+    // Host atual da aplicação; o frontend usa esse hostname para falar com GeoDNS e com o servidor regional.
     const APP_HOST = location.hostname;
     const APP_PROTOCOL = location.protocol === 'https:' ? 'https:' : 'http:';
     const WS_PROTOCOL = location.protocol === 'https:' ? 'wss:' : 'ws:';
     const GEO_DNS_URL = `${APP_PROTOCOL}//${APP_HOST}:8080`;
+    // O GeoDNS retorna o broker regional; este mapa converte o broker na porta pública do servidor correspondente.
     const SERVER_PORT_BY_BROKER = {
       broker_sul: 4001,
       broker_sudeste: 4002,
@@ -581,6 +584,7 @@
 
     const ICON_ROTATION_OFFSET = 315;
 
+    // Cria o ícone do avião e gira a figura de acordo com o rumo atual do voo.
     function planeIcon(f) {
       const h = f.heading || 0;
       return L.divIcon({
@@ -593,6 +597,7 @@
       });
     }
 
+    // Monta o conteúdo do tooltip com os dados principais da telemetria.
     function tooltipHtml(f) {
       return `<div style="font-family:JetBrains Mono,monospace;font-size:11px;background:#111827;border:1px solid #1e2d4a;color:#c8d8f0;padding:6px 10px;border-radius:3px;min-width:140px"><div style="color:${PHASE_COLOR[f.phase] || '#00d4ff'};font-weight:700">${f.callsign} · ${f.airline || ''}</div><div>${f.origin || '?'} → ${f.destination || '?'}</div><div style="color:#4a6080">${(f.altitude || 0).toLocaleString()} ft · ${f.speed || 0} km/h</div><div style="color:#4a6080">${f.phase || ''} · ${Math.round((f.progress || 0) * 100)}%</div></div>`;
     }
@@ -600,6 +605,7 @@
     let ghostMarkers = {};
     const GHOST_RANGE = 3;
 
+    // Cria cópias do avião em múltiplas longitudes para evitar sumiço visual no mapa-múndi.
     function syncGhostsForFlight(cs) {
       const primary = markers[cs];
       const f = flights[cs];
@@ -628,12 +634,14 @@
       }
     }
 
+    // Atualiza todos os aviões com seus ghosts quando o mapa é movido ou ampliado.
     function syncAllGhosts() {
       Object.keys(flights).forEach(syncGhostsForFlight);
     }
 
     map.on('moveend zoomend', syncAllGhosts);
 
+    // Cria ou atualiza o marcador do avião e sua trilha no mapa.
     function updateMarker(f) {
       const cs = f.callsign;
       if (markers[cs]) { markers[cs].setIcon(planeIcon(f)); }
@@ -653,6 +661,7 @@
       if (trails[cs].pts.length >= 2) trails[cs].line = L.polyline(trails[cs].pts, { color: PHASE_COLOR[f.phase] || '#00d4ff', weight: 1.5, opacity: .28, dashArray: '4 4' }).addTo(map);
     }
 
+    // Consulta o GeoDNS e descobre qual servidor regional deve atender o navegador.
     async function descobrirServidor() {
       const pos = COORDENADAS_TESTE || await new Promise(resolve => navigator.geolocation.getCurrentPosition(p => resolve({ lat: p.coords.latitude, lon: p.coords.longitude }), () => resolve({ lat: -23.55, lon: -46.63 })));
       try {
@@ -669,16 +678,19 @@
       }
     }
 
+    // Formata datas e horários para exibição amigável no painel lateral.
     function formatHora(valor) {
       const data = new Date(valor);
       if (Number.isNaN(data.getTime())) return '-';
       return data.toLocaleString('pt-BR');
     }
 
+    // Atualiza a área de detalhes com HTML pronto para o painel lateral.
     function setDetail(html) {
       document.getElementById('detail').innerHTML = html;
     }
 
+    // Renderiza a lista de voos ativos no painel lateral.
     function renderFlightsList() {
       const list = document.getElementById('list');
       const voos = Object.values(flights).sort((a, b) => (a.callsign || '').localeCompare(b.callsign || ''));
@@ -704,6 +716,7 @@
       }).join('');
     }
 
+    // Mostra as métricas vindas do servidor: voos, mensagens, WebSocket e memória.
     function renderMetrics() {
       const m = srvMetrics || {};
       document.getElementById('s-msgs').textContent = String(m.totalMsgs ?? totalMsgs ?? 0);
@@ -722,6 +735,8 @@
         </div>
       `);
     }
+
+    // Converte milissegundos em uma duração legível no histórico.
     function formatDuracao(ms) {
   if (!ms || ms < 0) return '—';
   const s = Math.floor(ms / 1000);
@@ -733,6 +748,7 @@
   return `${r}s`;
 }
 
+// Renderiza o histórico de voos observados nesta sessão.
 function renderHistory() {
   const list = document.getElementById('list');
   const entries = Object.values(historyCache)
@@ -781,6 +797,7 @@ function renderHistory() {
   }
 }
 
+// Mostra os detalhes de um voo no histórico, incluindo origem, destino e duração.
 function renderHistoryDetail(callsign) {
   const item = historyCache[callsign];
   if (!item) return;
@@ -825,6 +842,7 @@ function renderHistoryDetail(callsign) {
     </div>`);
 }
 
+// Marca um voo do histórico como selecionado e atualiza o painel lateral.
 function selecionarHistorico(callsign) {
   selFlight = callsign;
   document.querySelectorAll('.frow').forEach(r => r.classList.remove('sel'));
@@ -862,6 +880,7 @@ function selecionarHistorico(callsign) {
       `);
     }
 
+    // Busca as métricas atuais do servidor regional e atualiza a interface.
     async function carregarStatus() {
       if (!SERVER_HTTP) return;
       try {
@@ -871,6 +890,8 @@ function selecionarHistorico(callsign) {
       } catch {
       }
     }
+
+    // Mantém a função por compatibilidade com o fluxo de seleção do histórico.
     function carregarHistorico(callsign) {
   
   if (currentTab === 'hist') renderHistory();
@@ -878,6 +899,7 @@ function selecionarHistorico(callsign) {
     
     
 
+        // Carrega os últimos eventos de ciclo de vida para mostrar no frontend.
     async function carregarEventos() {
       if (!SERVER_HTTP) return;
       try {
@@ -888,6 +910,7 @@ function selecionarHistorico(callsign) {
       }
     }
 
+    // Decide qual painel lateral será renderizado de acordo com a aba ativa.
     function renderCurrentPanel() {
       if (currentTab === 'metr') return renderMetrics();
       if (currentTab === 'hist') return renderHistory();
@@ -895,6 +918,7 @@ function selecionarHistorico(callsign) {
       return renderFlightsList();
     }
 
+    // Atualiza os contadores do topo com base no estado local e nas métricas do servidor.
     function updateOverviewCounts() {
       const voosAtivos = Object.keys(flights).length;
       document.getElementById('s-voos').textContent = String(voosAtivos);
@@ -903,6 +927,7 @@ function selecionarHistorico(callsign) {
       document.getElementById('s-ws').textContent = String(srvMetrics.wsClients ?? 0);
     }
 
+    // Mostra os detalhes do voo selecionado quando o usuário clica em um marcador.
     function updateFlightDetails(f) {
       setDetail(`
         <div class="dtitle">${f.callsign}</div>
@@ -917,6 +942,7 @@ function selecionarHistorico(callsign) {
       `);
     }
 
+    // Seleciona um voo, destaca a linha correspondente e carrega o contexto do histórico.
     function selectFlight(callsign) {
   selFlight = callsign;
   const flight = flights[callsign];
@@ -936,6 +962,7 @@ function selecionarHistorico(callsign) {
 }
       
 
+    // Abre o WebSocket, recebe snapshot inicial e depois atualizações em tempo real.
     async function connect() {
       SERVER_WS = await descobrirServidor();
       await carregarStatus();
@@ -1005,6 +1032,7 @@ function selecionarHistorico(callsign) {
       ws.onclose = () => { setConn('err', 'DESCONECTADO'); setTimeout(connect, 3000); };
     }
 
+    // Anima a previsão de posição dos aviões entre uma telemetria e outra.
     function animarPrevisaoRotas() {
       const agora = Date.now();
       for (const cs in flights) {
@@ -1024,6 +1052,7 @@ function selecionarHistorico(callsign) {
     }
 
     
+    // Troca a aba ativa do painel lateral e renderiza o conteúdo correto.
     function setTab(name, el) {
   currentTab = name;
   document.querySelectorAll('.tab').forEach(t => t.classList.remove('on'));
@@ -1034,7 +1063,11 @@ function selecionarHistorico(callsign) {
     renderHistoryDetail(selFlight);
   }
 }
+
+    // Atualiza o badge de conexão no topo.
     function setConn(state, txt) { const b = document.getElementById('conn-badge'); b.className = 'badge ' + state; document.getElementById('conn-txt').textContent = txt; }
+
+    // Adiciona mensagens no log lateral com timestamp.
     function addLog(topic, msg, cls) { const el = document.getElementById('log'); el.innerHTML = `<div class="le">[${new Date().toLocaleTimeString()}] <b>${topic}</b> ${msg}</div>` + el.innerHTML; }
 
     setInterval(() => {

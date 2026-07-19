@@ -1,5 +1,4 @@
--- Esquema Cassandra usado pelo servidor.
-
+-- Schema Cassandra do Projeto.
 CREATE KEYSPACE IF NOT EXISTS usp_airlines
 WITH replication = {'class': 'SimpleStrategy', 'replication_factor': 1};
 
