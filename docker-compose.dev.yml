@@ -22,12 +22,12 @@ services:
     build: ./geodns
     container_name: usp-airline-geodns
     ports:
-      - "8080:8080"
+      - "18081:8080"
     networks:
       - usp-airline-net
     restart: unless-stopped
 
-# ── REGIÃO SUDESTE ─────────────────────────────────────────────────────────
+  # ── REGIÃO SUDESTE ───────────────────────────────────────────────────────
   broker_sudeste:
     build: ./broker
     container_name: usp-airline-broker-sudeste
@@ -40,6 +40,11 @@ services:
     networks:
       - usp-airline-net
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "mosquitto_sub", "-h", "localhost", "-p", "1883", "-t", "$$SYS/broker/uptime", "-C", "1", "-W", "3"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
   banco_sudeste:
     image: cassandra:latest
@@ -53,8 +58,15 @@ services:
       HEAP_NEWSIZE: "128M"
     volumes:
       - cassandra_data_sudeste:/var/lib/cassandra
+      - ./banco/init.cql:/docker-entrypoint-initdb.d/init.cql
     networks:
       - usp-airline-net
+    healthcheck:
+      test: ["CMD-SHELL", "cqlsh -e 'DESCRIBE KEYSPACES' || exit 1"]
+      interval: 10s
+      timeout: 10s
+      retries: 10
+      start_period: 40s
 
   servidor_sudeste:
     build: ./servidor
@@ -71,7 +83,7 @@ services:
       - usp-airline-net
     depends_on:
       broker_sudeste: { condition: service_started }
-      banco_sudeste: { condition: service_started }
+      banco_sudeste: { condition: service_healthy }
     restart: unless-stopped
 
   # ── FRONTEND ──────────────────────────────────────────────────────────────

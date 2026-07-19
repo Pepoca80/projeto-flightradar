@@ -55,7 +55,7 @@ services:
     build: ./geodns
     container_name: usp-airline-geodns
     ports:
-      - "8080:8080"
+      - "18080:8080"
     networks:
       - usp-airline-net
     restart: unless-stopped
@@ -92,8 +92,8 @@ services:
       - usp-airline-net
     restart: unless-stopped
     healthcheck:
-      test: ["CMD-SHELL", "cqlsh -e \"SELECT release_version FROM system.local\" >/dev/null"]
-      interval: 20s
+      test: ["CMD-SHELL", "cqlsh -e \"DESCRIBE KEYSPACES\" >/dev/null"]
+      interval: 10s
       timeout: 10s
       retries: 10
       start_period: 40s
@@ -150,8 +150,8 @@ services:
       - usp-airline-net
     restart: unless-stopped
     healthcheck:
-      test: ["CMD-SHELL", "cqlsh -e \"SELECT release_version FROM system.local\" >/dev/null"]
-      interval: 20s
+      test: ["CMD-SHELL", "cqlsh -e \"DESCRIBE KEYSPACES\" >/dev/null"]
+      interval: 10s
       timeout: 10s
       retries: 10
       start_period: 40s
@@ -208,8 +208,8 @@ services:
       - usp-airline-net
     restart: unless-stopped
     healthcheck:
-      test: ["CMD-SHELL", "cqlsh -e \"SELECT release_version FROM system.local\" >/dev/null"]
-      interval: 20s
+      test: ["CMD-SHELL", "cqlsh -e \"DESCRIBE KEYSPACES\" >/dev/null"]
+      interval: 10s
       timeout: 10s
       retries: 10
       start_period: 40s
@@ -266,8 +266,8 @@ services:
       - usp-airline-net
     restart: unless-stopped
     healthcheck:
-      test: ["CMD-SHELL", "cqlsh -e \"SELECT release_version FROM system.local\" >/dev/null"]
-      interval: 20s
+      test: ["CMD-SHELL", "cqlsh -e \"DESCRIBE KEYSPACES\" >/dev/null"]
+      interval: 10s
       timeout: 10s
       retries: 10
       start_period: 40s
@@ -324,8 +324,8 @@ services:
       - usp-airline-net
     restart: unless-stopped
     healthcheck:
-      test: ["CMD-SHELL", "cqlsh -e \"SELECT release_version FROM system.local\" >/dev/null"]
-      interval: 20s
+      test: ["CMD-SHELL", "cqlsh -e \"DESCRIBE KEYSPACES\" >/dev/null"]
+      interval: 10s
       timeout: 10s
       retries: 10
       start_period: 40s

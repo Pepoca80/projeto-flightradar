@@ -73,7 +73,7 @@ Depois de subir os containers, acesse:
 | Serviço | Endereço |
 |---|---|
 | Frontend | `http://localhost:3000` |
-| GeoDNS | `http://localhost:8080` |
+| GeoDNS | `http://localhost:18080` |
 | API da região Sudeste no modo `dev` | `http://localhost:4002` |
 
 No modo `full`, cada região expõe sua própria porta:

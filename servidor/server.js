@@ -21,6 +21,7 @@ const CFG = {
   dbContact:  process.env.CASSANDRA_CONTACT_POINTS || 'banco', // Host do Cassandra
   dbDc:       process.env.CASSANDRA_DATACENTER || 'datacenter1', // Data center local do cluster
   dbKeyspace: process.env.CASSANDRA_KEYSPACE || 'usp_airlines',   // Keyspace usado nas consultas
+  dbReplicationFactor: parseInt(process.env.CASSANDRA_REPLICATION_FACTOR || '1'), // Replica do keyspace
   geoDnsUrl:  process.env.GEODNS_URL || 'http://geodns:8080',     // URL do serviço GeoDNS
   lat:        process.env.SERVER_LAT || '-23.5505',               // Latitude usada para descobrir a região
   lon:        process.env.SERVER_LON || '-46.6333'                // Longitude usada para descobrir a região
@@ -57,7 +58,7 @@ async function initDb() {
     
     await setupClient.execute(`
       CREATE KEYSPACE IF NOT EXISTS ${CFG.dbKeyspace}
-      WITH replication = {'class': 'SimpleStrategy', 'replication_factor': 5};
+      WITH replication = {'class': 'SimpleStrategy', 'replication_factor': ${CFG.dbReplicationFactor}};
     `);
 
     await setupClient.execute(`
