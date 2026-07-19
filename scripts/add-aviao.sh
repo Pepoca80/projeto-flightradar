@@ -1,4 +1,3 @@
-#!/usr/bin/env bash
 # ─────────────────────────────────────────────────────────────────────────────
 #  usp-airline — Adicionar avião dinamicamente
 #  Uso: ./scripts/add-aviao.sh CALLSIGN AIRLINE IATA ORIGIN DESTINATION [MS]
