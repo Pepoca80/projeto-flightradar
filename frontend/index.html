@@ -1032,7 +1032,7 @@ function selecionarHistorico(callsign) {
       ws.onclose = () => { setConn('err', 'DESCONECTADO'); setTimeout(connect, 3000); };
     }
 
-    // Anima a previsão de posição dos aviões entre uma telemetria e outra.
+    // Anima a previsão de posição dos aviões entre uma telemetria e outra, sobretudo quando a telemetria chega com atraso ou em intervalos maiores que 1 segundo.
     function animarPrevisaoRotas() {
       const agora = Date.now();
       for (const cs in flights) {

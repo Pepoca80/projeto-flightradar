@@ -124,7 +124,7 @@ projeto-flightradar/
 │   ├── package.json
 │   └── Dockerfile
 ├── banco/
-│   └── init.sql
+│   └── init.cql
 ├── broker/
 │   ├── mosquitto.conf
 │   ├── mosquitto.dev.conf

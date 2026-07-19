@@ -1,6 +1,6 @@
 'use strict';
 /**
- * USP Airlines — servidor de aplicação
+ * USP Airlines — Servidor de Aplicação
  *
  * Este processo recebe telemetria dos aviões via MQTT, mantém o estado dos
  * voos em memória, distribui atualizações por WebSocket, expõe uma API REST e

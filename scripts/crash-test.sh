@@ -10,7 +10,7 @@ echo " USP Airlines — Teste de Crash Failures"
 echo "────────────────────────────────────────────────────────"
 
 check_server() {
-  curl -sf http://localhost:4001/status > /dev/null 2>&1
+  curl -sf http://localhost:4002/status > /dev/null 2>&1
   return $?
 }
 
@@ -24,7 +24,7 @@ else
   exit 1
 fi
 
-VOOS_ANTES=$(curl -s http://localhost:4001/status | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('voosAtivos',0))" 2>/dev/null || echo "?")
+VOOS_ANTES=$(curl -s http://localhost:4002/status | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('voosAtivos',0))" 2>/dev/null || echo "?")
 echo "    Voos ativos antes: $VOOS_ANTES"
 
 # 2. Listar containers de aviões
@@ -57,13 +57,13 @@ else
   echo "    ✗ FALHA: servidor parou de responder!"
 fi
 
-STATUS=$(curl -s http://localhost:4001/status)
+STATUS=$(curl -s http://localhost:4002/status)
 echo "    Status: $STATUS" | python3 -c "import sys,json; raw=sys.stdin.read(); d=json.loads(raw.split('Status: ')[1]); print(f'    Voos ativos: {d[\"voosAtivos\"]} | Msgs: {d[\"totalMsgs\"]}')" 2>/dev/null || echo "    (parse error)"
 
 # 5. Verificar Last Will Testament
 echo ""
 echo "[5] Verificando eventos de desconexão no servidor..."
-curl -s http://localhost:4001/eventos | python3 -c "
+curl -s http://localhost:4002/eventos | python3 -c "
 import sys, json
 evts = json.load(sys.stdin)
 descon = [e for e in evts if e['evento'] in ('desconectou','emergencia')]
