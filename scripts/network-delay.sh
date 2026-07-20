@@ -3,7 +3,7 @@
 #  Simula conexões de rádio intermitentes entre aviões e broker.
 #  Usa tc (traffic control) do Linux para adicionar delay e packet loss.
 #
-#  Funciona somente em ambiente wsl ou ambiente Linux nativo.
+#  Recomendamos rodar o script usando o Git Bash.
 #
 #  Uso:
 #    ./scripts/network-delay.sh inject   # injeta 500ms + 10% perda

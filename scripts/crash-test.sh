@@ -3,7 +3,7 @@
 #  Derruba containers de aviões aleatoriamente e verifica que o sistema
 #  continua funcionando (broker, servidor e frontend não caem).
 #
-#  Funciona somente em ambiente wsl ou ambiente Linux nativo.
+#  Recomendamos rodar o script usando o Git Bash.
 
 echo "────────────────────────────────────────────────────────"
 echo " USP Airlines — Teste de Crash Failures"
